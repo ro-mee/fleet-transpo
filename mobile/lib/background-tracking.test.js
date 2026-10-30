@@ -76,7 +76,7 @@ beforeEach(() => {
   Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.requestBackgroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.hasStartedLocationUpdatesAsync.mockResolvedValue(false);
-  Location.startLocationUpdatesAsync.mockResolvedValue(undefined);
+  Location.startLocationUpdatesAsync.mockImplementation(async () => { Location.hasStartedLocationUpdatesAsync.mockResolvedValue(true); });
   Location.stopLocationUpdatesAsync.mockResolvedValue(undefined);
 });
 
@@ -103,9 +103,32 @@ describe("background tracking readiness", () => {
     expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
   });
 
+  it("refuses readiness when native startup resolves without registering the task", async () => {
+    Location.hasStartedLocationUpdatesAsync.mockResolvedValue(false);
+    Location.startLocationUpdatesAsync.mockResolvedValue(undefined);
+    expect(await backgroundTracking.prepareBackgroundTracking(context)).toEqual({ ok: false, reason: "start-failed" });
+  });
+
+  it("lets the owner's automatic fallback check permissions without prompting", async () => {
+    Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "denied" });
+    expect(await backgroundTracking.startBackgroundTracking(false)).toEqual({ ok: false, reason: "permission-denied" });
+    expect(Location.requestForegroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.requestBackgroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(["getForegroundPermissionsAsync", "getBackgroundPermissionsAsync"])("does not start stale owner work after %s", async method => {
+    let current = true;
+    Location[method].mockImplementation(async () => { current = false; return { status: "granted" }; });
+    expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission: true, isCurrent: () => current }))
+      .toEqual({ ok: false, reason: "stale-trip" });
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
   it("persists the trip and leg before starting with the established service options", async () => {
     Location.startLocationUpdatesAsync.mockImplementation(async () => {
       expect(await loadContext()).toMatchObject({ ...context, prev: null, pending: null });
+      Location.hasStartedLocationUpdatesAsync.mockResolvedValue(true);
     });
 
     expect(await backgroundTracking.prepareBackgroundTracking(context)).toEqual({ ok: true });
@@ -170,7 +193,7 @@ describe("background tracking readiness", () => {
     Location.requestForegroundPermissionsAsync.mockImplementation(async () => { calls.push("request-foreground"); return { status: "granted" }; });
     Location.getBackgroundPermissionsAsync.mockImplementation(async () => { calls.push("get-background"); return { status: "undetermined" }; });
     Location.requestBackgroundPermissionsAsync.mockImplementation(async () => { calls.push("request-background"); return { status: "granted" }; });
-    Location.startLocationUpdatesAsync.mockImplementation(async () => { calls.push("start-native"); });
+    Location.startLocationUpdatesAsync.mockImplementation(async () => { calls.push("start-native"); Location.hasStartedLocationUpdatesAsync.mockResolvedValue(true); });
 
     expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission: true })).toEqual({ ok: true });
     expect(calls).toEqual(["get-foreground", "request-foreground", "get-background", "request-background", "start-native"]);

@@ -22,8 +22,7 @@ const pickupUrl = 'https://www.google.com/maps/dir/?api=1&destination=14.6%2C121
 const destinationUrl = 'https://www.google.com/maps/dir/?api=1&destination=14.7%2C121.1&travelmode=driving&dir_action=navigate';
 
 // Execute the shipped Map action with only native/platform boundaries replaced.
-// The handoff prepare no longer starts a background task; it only probes the
-// foreground permission (Location), so 'start-failed' has no map-side producer.
+// The owner boundary reports background permission/native startup readiness.
 function mapAction(permission, tripOverride = {}) {
   const opened = [], warnings = [];
   const context = {
@@ -33,7 +32,7 @@ function mapAction(permission, tripOverride = {}) {
     appState: { current: 'active' },
     user: { employeeId: 23 }, captureCargoSession: () => ({}), isCurrentCargoSession: () => true,
     setNavigationBusy: () => {}, navigationTarget, externalNavigationUrl, beginNavigationHandoff,
-    launchExternalNavigation, isGpsTrackedTrip, Location: { getForegroundPermissionsAsync: permission },
+    launchExternalNavigation, isGpsTrackedTrip, prepareTripNavigation: permission, cancelTripNavigation: async () => ({ ok: true }), legForStatus,
     useCallback: fn => fn,
     loadTripRef: { current: async () => {} },
     Linking: { openURL: async url => { opened.push(url); } },
@@ -99,8 +98,9 @@ describe('external navigation release contract', () => {
   });
 
   it.each([
-    ['permission-denied', async () => ({ status: 'denied' }), {}, destinationUrl],
-    ['unsupported', async () => ({ status: 'granted' }), { trip_status: 'Assigned', origin_latitude: 14.6, origin_longitude: 121 }, pickupUrl],
+    ['permission-denied', async () => ({ ok: false, reason: 'permission-denied' }), {}, destinationUrl],
+    ['start-failed', async () => ({ ok: false, reason: 'start-failed' }), {}, destinationUrl],
+    ['unsupported', async () => ({ ok: true }), { trip_status: 'Assigned', origin_latitude: 14.6, origin_longitude: 121 }, pickupUrl],
   ])('requires the explicit override after %s and keeps Stay Here safe', async (reason, permission, tripOverride, expectedUrl) => {
     const safe = mapAction(permission, tripOverride);
     await safe.action();
@@ -130,7 +130,7 @@ describe('external navigation release contract', () => {
     await Promise.resolve();
     expect(preparations).toBe(1);
     expect(map.opened).toEqual([]);
-    resolveReady({ status: 'denied' });
+    resolveReady({ ok: false, reason: 'permission-denied' });
     await Promise.all([running, duplicate]);
     await map.action();
     expect(preparations).toBe(1);
@@ -141,7 +141,7 @@ describe('external navigation release contract', () => {
   });
 
   it('refuses a warning override when the current trip has ended', async () => {
-    const map = mapAction(async () => ({ status: 'denied' }));
+    const map = mapAction(async () => ({ ok: false, reason: 'permission-denied' }));
     await map.action();
     map.context.activeTripRef.current = null;
     await map.warnings[0][2][1].onPress();

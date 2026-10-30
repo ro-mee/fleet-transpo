@@ -98,8 +98,8 @@ describe('Cargo assignment presentation in the shared details screen', () => {
 
 const checklistCode = (await transform(readFileSync(new URL('../components/inspection/InspectionChecklist.jsx', import.meta.url), 'utf8'), { loader: 'jsx', format: 'cjs' })).code;
 const inspectionCode = (await transform(readFileSync(new URL('../app/(app)/inspection.js', import.meta.url), 'utf8'), { loader: 'jsx', format: 'cjs' })).code;
-function renderInspection({ cargo = true, insecure = false, missingContext = false } = {}) {
-  const answers = { brakes_tires: 'PASS', cargo_secure: insecure ? 'FAIL' : 'PASS', passenger_items: 'PASS', cabin_ready: 'PASS' };
+function renderInspection({ cargo = true, insecure = false, missingContext = false, safetyFail = false } = {}) {
+  const answers = { brakes_tires: safetyFail ? 'FAIL' : 'PASS', cargo_secure: insecure ? 'FAIL' : 'PASS', passenger_items: 'PASS', cabin_ready: 'PASS' };
   const values = [missingContext ? null : { trip_id: 7, load_type: cargo ? 'Cargo' : 'Passenger', plate_number: 'ABC 123', model: 'Toyota Hilux' }, answers, { cargo_secure: 'Strap loose' }, false, 'submission-7', false];
   let index = 0;
   const elements = [];
@@ -141,6 +141,12 @@ describe('Cargo pre-trip in the shared inspection form', () => {
     const h = renderInspection({ insecure: true });
     expect(h.text).toMatch(/departure.*blocked/i);
     expect(h.elements.find(e => e.component === 'Button').props.label).not.toBe('GOOD TO GO');
+  });
+  it('names a blocking Passenger safety report and selected checklist answers', () => {
+    const h = renderInspection({ cargo: false, safetyFail: true });
+    expect(h.elements.find(e => e.component === 'Button').props.label).toBe('SAVE BLOCKING ISSUE');
+    expect(h.elements.some(e => e.component === 'Pressable' && e.props.accessibilityRole === 'radio' && e.props.accessibilityState?.checked === true)).toBe(true);
+    expect(h.elements.some(e => e.component === 'Input' && e.props.accessibilityLabel?.includes('required'))).toBe(true);
   });
   it('keeps Passenger readiness and shared cabin acknowledgement', () => {
     const h = renderInspection({ cargo: false });

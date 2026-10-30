@@ -96,7 +96,7 @@ describe("cargo workflow screen actions", () => {
   it("keeps delivery observation separate from unavailable receiver confirmation", async () => {
     const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "delivery", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "Drop-off" }, view: { canSubmit: true, stage: "DELIVERY", canConfirmDelivery: false, summary: { receiverLabel: "Receiver authority unavailable" }, blockers: [] }, review: true, form: { counts: { boxes: "9" }, issues: {} } }));
-    expect(html).toContain("Record delivery observation"); expect(html).toContain('<button disabled="">Confirm delivery'); expect(html).toContain("pending review");
+    expect(html).toContain("Record delivery observation"); expect(html).toContain("Delivery awaits receiving confirmation"); expect(html).not.toContain('<button disabled="">Confirm delivery'); expect(html).toContain("pending review");
   });
 });
 

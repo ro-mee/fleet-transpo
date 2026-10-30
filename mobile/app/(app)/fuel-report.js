@@ -1,3 +1,4 @@
+import { fuelLevelError } from '../../lib/fuel-request-validation';
 import DriverGuideTrigger from '../../components/coachmarks/DriverGuideTrigger';
 import { guardLegacyGuideLinks } from '../../components/coachmarks/LegacyGuideLinkGuard';
 import FuelRequestForm from '../../components/fuel/FuelRequestForm';
@@ -20,6 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AppAlert } from '../../components/AppAlert';
+import { Logo } from '../../components/logo';
 import { RECEIPT_FRAME, receiptCropRect } from "../../lib/receipt-crop";
 import { ClayCard, ClayButton, ClayTile, ClayBadge } from '../../components/clay';
 import { FuelGaugeTutorialModal } from "../../components/coachmarks/simulation/FuelGaugeTutorialModal";
@@ -98,6 +100,7 @@ function FuelReport() {
   // before measuring — the verify step's fields sit below the fold on a small
   // device, and an off-screen target would dim the page with nothing framed.
   const scrollRef = useRef(null);
+  const fuelLevelInputRef = useRef(null);
 
   useEffect(() => {
     if (
@@ -342,7 +345,8 @@ function FuelReport() {
       AppAlert.alert("No Assigned Vehicle", "A fuel request needs a vehicle currently assigned to you.");
       return;
     }
-    if (!Number.isFinite(value) || value < 0 || value > 100) {
+    if (fuelLevelError(fuelLevelPercent)) {
+      fuelLevelInputRef.current?.focus();
       AppAlert.alert("Invalid Fuel Level", "Enter the dashboard fuel level from 0 to 100%.");
       return;
     }
@@ -931,7 +935,7 @@ function FuelReport() {
           >
             <Ionicons name="close" size={24} color={colors.onSurfaceVariant} />
           </Pressable>
-          <Text style={[styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
+          <Logo size={24} subtitle={false} />
         </View>
       </View>
 
@@ -1037,7 +1041,7 @@ function FuelReport() {
                 </View>
               </View>
             ) : (
-              <FuelRequestForm {...{ latestFuelRequest, fuelLevelPercent, setFuelLevelPercent, gaugePhotoUrl, setGaugePhotoUrl, gaugeScanEstimate, setGaugeScanEstimate, gaugeBusy, requestingFuel, requestPurpose, setRequestPurpose, requestFuel, styles }} hasAssignedVehicle={isTour || hasAssignedVehicle} onCaptureGauge={() => { if (isTour) { setTourGaugeModalVisible(true); return; } openGaugeCamera(); }} />
+              <FuelRequestForm {...{ latestFuelRequest, fuelLevelPercent, fuelLevelInputRef, setFuelLevelPercent, gaugePhotoUrl, setGaugePhotoUrl, gaugeScanEstimate, setGaugeScanEstimate, gaugeBusy, requestingFuel, requestPurpose, setRequestPurpose, requestFuel, styles }} hasAssignedVehicle={isTour || hasAssignedVehicle} onCaptureGauge={() => { if (isTour) { setTourGaugeModalVisible(true); return; } openGaugeCamera(); }} />
             )}
           </ClayCard>
         ) : null}
@@ -1308,7 +1312,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  topBarTitle: { fontSize: 17, fontFamily: fonts.displayBold },
   scroll: { paddingHorizontal: 16, paddingTop: 20, gap: 16 },
   heading: { gap: 4 },
   headingTitle: { fontSize: 24, fontFamily: fonts.displayBold, letterSpacing: -0.5 },

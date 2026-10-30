@@ -2,6 +2,7 @@ import { forwardRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
+import { fonts } from '../../lib/theme';
 import { moldedMaterials } from './molded-materials';
 
 export const ClayInput = forwardRef(function ClayInput(
@@ -12,6 +13,7 @@ export const ClayInput = forwardRef(function ClayInput(
     icon,
     rightIcon,
     onRightIconPress,
+    rightIconAccessibilityLabel,
     value,
     onChangeText,
     placeholder,
@@ -38,48 +40,17 @@ export const ClayInput = forwardRef(function ClayInput(
     ? colors.error
     : isFocused
     ? colors.primary
-    : isDark
-    ? 'rgba(255,255,255,0.08)'
-    : 'rgba(0,0,0,0.08)';
+    : colors.outlineVariant;
 
-  const moldedInputStyle = mats.supported
-    ? isFocused
-      ? {
-          borderWidth: 1.5,
-          borderColor: colors.primary,
-          borderTopWidth: 1.5,
-          borderBottomWidth: 1.5,
-          borderTopColor: colors.primary,
-          borderBottomColor: colors.primary,
-          boxShadow: `inset 1px 2px 3px ${isDark ? 'rgba(0,0,0,0.30)' : 'rgba(83,74,53,0.08)'}`,
-        }
-      : hasError
-      ? {
-          borderWidth: 1.5,
-          borderColor: colors.error,
-          borderTopWidth: 1.5,
-          borderBottomWidth: 1.5,
-          borderTopColor: colors.error,
-          borderBottomColor: colors.error,
-          boxShadow: `inset 1px 2px 3px ${isDark ? 'rgba(0,0,0,0.30)' : 'rgba(83,74,53,0.08)'}`,
-        }
-      : mats.clayInput
-    : {
-        borderWidth: 1,
-        borderTopWidth: 1.5,
-        borderBottomWidth: 2,
-        borderColor,
-        borderTopColor: isFocused
-          ? colors.primary
-          : isDark
-          ? 'rgba(255,255,255,0.14)'
-          : '#FFFFFF88',
-        borderBottomColor: isFocused
-          ? colors.primary
-          : isDark
-          ? 'rgba(0,0,0,0.40)'
-          : '#00000018',
-      };
+  const moldedInputStyle = {
+    ...mats.clayInput,
+    borderWidth: hasError || isFocused ? 1.5 : 1,
+    borderTopWidth: hasError || isFocused ? 1.5 : 1,
+    borderBottomWidth: hasError || isFocused ? 1.5 : 1,
+    borderColor,
+    borderTopColor: borderColor,
+    borderBottomColor: borderColor,
+  };
 
   return (
     <View style={[styles.wrapper, containerStyle]}>
@@ -113,6 +84,7 @@ export const ClayInput = forwardRef(function ClayInput(
 
         <TextInput
           ref={ref}
+          accessibilityLabel={label}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -126,6 +98,7 @@ export const ClayInput = forwardRef(function ClayInput(
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           style={[
+            type.bodyMd,
             styles.input,
             { color: colors.onSurface },
             multiline && styles.multilineInput,
@@ -140,6 +113,8 @@ export const ClayInput = forwardRef(function ClayInput(
             disabled={!onRightIconPress}
             style={styles.rightIconBox}
             accessibilityRole={onRightIconPress ? 'button' : undefined}
+            accessibilityLabel={rightIconAccessibilityLabel || (secureTextEntry === true ? 'Show password' : secureTextEntry === false ? 'Hide password' : label ? `${label} action` : 'Input action')}
+            accessibilityState={{ disabled: !onRightIconPress }}
           >
             <Ionicons
               name={rightIcon}
@@ -169,13 +144,13 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   label: {
-    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontFamily: fonts.bodySemiBold,
     marginBottom: 2,
   },
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: 12,
     minHeight: 48,
     paddingHorizontal: 12,
   },
@@ -191,14 +166,14 @@ const styles = StyleSheet.create({
   },
   rightIconBox: {
     marginLeft: 8,
-    padding: 4,
+    minWidth: 48,
+    minHeight: 48,
     justifyContent: 'center',
     alignItems: 'center',
   },
   input: {
     flex: 1,
-    fontSize: 15,
-    fontFamily: 'PlusJakartaSans-Regular',
+    fontFamily: fonts.body,
     paddingVertical: 8,
   },
   multilineInput: {

@@ -35,9 +35,9 @@ describe("shared cargo presentation", () => {
     expect(html).toContain("No temperature control required");
     expect(render(CargoManifestSummary, { manifest: { lines: [{ line_id: "legacy", name: "Legacy item", expected_quantity: "1", unit: "box" }] } })).toContain("physical evidence unknown");
   });
-  it("renders the unsaved draft and exposes transport requirements", () => {
+  it("renders the item list that is saved with the reservation and exposes transport requirements", () => {
     const html = render(CargoContentsEditor, { lines: [blankCargoDraftLine("first")], calculatedKg: null, onChange: vi.fn(), errors: { "line.0.temperature_mode": "Confirm temperature requirement" } });
-    expect(html).toContain("Unsaved local draft");
+    expect(html).toContain("Save the reservation to keep this item list.");
     expect(html).toContain("Gross kg per package");
     expect(html).toContain("Package length (m)");
     expect(html).toContain("Confirm temperature requirement");

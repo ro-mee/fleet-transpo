@@ -62,11 +62,12 @@ export async function saveCargoDraft({ actorId, tripId, manifestRef, draft, isCu
   if (!isCurrent()) throw new CargoDraftError("Cargo assignment authority changed. Refresh before saving this receipt.", "CARGO_AUTHORITY_CHANGED");
   const pending = rows.filter((row) => row.syncState !== "FLEET_SAVED").length;
   if (pending >= MAX_CARGO_DRAFTS) throw new CargoDraftError("Cargo evidence is full. Sync or review saved cargo before adding more.", "CARGO_QUEUE_FULL");
+  const submissionId = draft.submission_id || makeSubmissionId();
   const evidence = [];
   const normalizeEvidence = (file, lineId = null) => ({
     ...file,
     lineId,
-    uploadSubmissionId: file.uploadSubmissionId || makeSubmissionId(),
+    uploadSubmissionId: submissionId,
     evidenceId: file.evidenceId ?? null,
     uploadState: file.evidenceId ? "UPLOADED" : "STAGED",
   });
@@ -83,7 +84,7 @@ export async function saveCargoDraft({ actorId, tripId, manifestRef, draft, isCu
     tripId: String(tripId),
     manifestRef: { ...manifestRef },
     manifestHash: String(manifestRef.hash),
-    submissionId: draft.submission_id || makeSubmissionId(),
+    submissionId,
     draft: { ...draft, submission_id: undefined, lines },
     evidence,
     syncState: "DEVICE_SAVED",

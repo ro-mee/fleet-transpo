@@ -27,7 +27,28 @@ const pillEdgesDark = { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1
 const pressedStyle = ({ pressed }) => pressed ? { opacity: 0.72 } : null;
 
 const HOTEL_IMAGE = require('../../assets/images/hotel.png');
+const CARGO_IMAGE = require('../../assets/images/cargo-depot.png');
 const MAP_IMAGE = require('../../assets/images/map.png');
+
+export const DriverDutyStatus = memo(function DriverDutyStatus({ duty, activeTrip, workspaceMode, ink }) {
+  const { colors, type } = useTheme();
+  const known = duty?.loaded;
+  const onDuty = known && duty.checkedIn;
+  const state = !known ? 'Checking duty status' : !onDuty ? 'Off Duty' : activeTrip
+    ? `On Duty · ${tripStatusLabel(activeTrip.trip_status, activeTrip.load_type)}`
+    : duty.busy ? 'On Duty · Busy' : 'On Duty · Standby';
+  const detail = !known ? 'Connect and refresh to confirm your current duty.' : activeTrip
+    ? `Follow your current ${workspaceMode === 'cargo' ? 'cargo' : 'passenger'} assignment.`
+    : !onDuty ? duty.today?.blocked ? 'No duty scheduled today. Check your work schedule.' : 'Start with your Pre-Shift inspection.'
+    : duty.busy ? 'Finish your current work before ending duty.' : 'Waiting for your next assignment.';
+  return <View style={[s.dutyRibbon, { borderTopColor: (ink || colors.onSurface) + '40' }]}>
+    <Ionicons name={onDuty ? 'shield-checkmark-outline' : 'time-outline'} size={20} color={ink || colors.primary} accessible={false} />
+    <View style={s.flex}>
+      <Text accessibilityLiveRegion="polite" style={[type.labelLg, { color: ink || colors.onSurface }]}>{state}</Text>
+      <Text style={[type.caption, { color: ink || colors.onSurfaceVariant }]}>{detail}</Text>
+    </View>
+  </View>;
+});
 
 // Memoized presentational layer: Home re-renders on 30 s ticks, poster and
 // notification publishes — cards with stable props skip reconciliation. The
@@ -36,68 +57,49 @@ export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, c
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
   const { settings } = useSettings();
+  const { width, fontScale } = useWindowDimensions();
   const [failedImage, setFailedImage] = useState(null);
   const imageUri = vehicle?.imageUri;
   const isDark = scheme === 'dark';
   const cargo = workspaceMode === 'cargo';
+  const spacious = width < 360 || fontScale > 1.3 || settings.textSize === 'large';
+  const textScale = (type.caption?.fontSize ?? moderateScale(12)) / moderateScale(12);
   const date = new Date().toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  const illustrated = !settings.highContrast && (cargo || workspaceMode === 'passenger');
+  const sceneBg = settings.highContrast ? colors.surface : cargo ? (isDark ? colors.primaryContainer : colors.primary) : colors.secondaryContainer;
+  const sceneInk = settings.highContrast ? colors.onSurface : cargo ? (isDark ? colors.onPrimaryContainer : colors.onPrimary) : colors.onSecondaryContainer;
 
-  // Light mode pale mint clay background matching reference 1:1; dark mode uses primaryContainer
-  const kpiBgColor = isDark ? colors.primaryContainer : '#E5EEE7';
-  const kpiTextColor = isDark ? colors.onPrimaryContainer : '#09211A';
-  const kpiActionColor = isDark ? colors.onPrimaryContainer : '#15483A';
-  const iconTileBg = isDark ? colors.surfaceContainerLow : '#F3F7F4';
-
-  return <View style={[s.heroShell, cargo && s.cargoOverview, { ...(cargo ? mats.compactShade : mats.clayShade), shadowColor: colors.shadow, backgroundColor: colors.surfaceContainerLow }]}>
-    <View style={[s.hero, cargo && s.cargoOverviewBody]}>
-      {/* 3D Hotel Background Scenery matching reference 1:1 */}
-      {workspaceMode === 'passenger' ? <Image
-        source={HOTEL_IMAGE}
-        resizeMode="contain"
-        accessible={false}
-        style={[s.hotelBg, isDark && { opacity: 0.65 }]}
-      /> : null}
-
-      {/* Header Text */}
-      {cargo ? showDuty ? <View style={[s.cargoDuty, { backgroundColor: colors.primaryContainer }]}>
-        <Ionicons name={activeTrip ? 'cube-outline' : 'shield-checkmark-outline'} size={26} color={colors.onPrimaryContainer} />
-        <View style={s.flex}>
-          <Text style={[type.cardTitle, { color: colors.onPrimaryContainer }]}>{activeTrip ? tripStatusLabel(activeTrip.trip_status, activeTrip.load_type) : duty?.loaded ? duty.checkedIn ? 'On Duty · Standby' : 'Off Duty' : 'Checking duty status'}</Text>
-          <Text style={[type.supporting, { color: colors.onPrimaryContainer }]}>{activeTrip ? 'Follow your current cargo assignment.' : duty?.loaded && duty.checkedIn ? 'Waiting for your next assignment.' : 'Cargo work. Clear deliveries.'}</Text>
-        </View>
-      </View> : null : <View style={[s.heroHeader, workspaceMode !== 'passenger' && { maxWidth: '100%' }]}>
-        <Text style={[type.caption, s.heroDate, { color: colors.primary }]}>{date.toLocaleUpperCase()}</Text>
-        <Text style={[type.body, s.heroSubtitle, { color: colors.onSurfaceVariant }]}>
-          {workspaceMode === 'cargo' ? 'Cargo work. Clear deliveries.' : workspaceMode === 'passenger' ? 'Smooth rides. Happy guests.' : 'Your workday at a glance.'}
+  return <View style={[s.heroShell, { ...mats.clayShade, shadowColor: colors.shadow, backgroundColor: colors.surfaceContainerLow }]}>
+    <View style={[s.heroScene, { backgroundColor: sceneBg }]}>
+      <Text style={[type.caption, { color: sceneInk }]}>{date}</Text>
+      <View style={[s.sceneComposition, spacious && s.sceneCompositionStacked, !illustrated && s.sceneCompositionPlain]}>
+        <Text accessibilityRole="header" style={[s.sceneTitle, { color: sceneInk, fontSize: moderateScale(24) * textScale, lineHeight: moderateScale(30) * textScale }, (!illustrated || spacious) && s.sceneTitleWide]}>
+          {cargo ? 'Cargo work. Clear deliveries.' : workspaceMode === 'passenger' ? 'Smooth rides. Happy guests.' : 'Your workday at a glance.'}
         </Text>
-      </View>}
-
-      {/* 2 KPI Stat Cards */}
-      <View style={[s.metrics, cargo && s.cargoMetrics]}>
+        {illustrated ? <Image source={cargo ? CARGO_IMAGE : HOTEL_IMAGE} resizeMode="contain" accessible={false} style={[s.sceneArt, spacious && s.sceneArtStacked]} /> : null}
+      </View>
+      {showDuty ? <DriverDutyStatus duty={duty} activeTrip={activeTrip} workspaceMode={workspaceMode} ink={sceneInk} /> : null}
+    </View>
+    <View style={s.heroSummary}>
+      <View style={[s.metrics, spacious && s.metricsStacked]}>
         {[
-          { label: 'Upcoming trips', value: confirmed ? `${upcoming}${capped ? '+' : ''}` : '—', caption: confirmed ? 'View assignments' : 'Not yet confirmed', icon: 'calendar', action: onTrips },
-          { label: 'Trips completed', value: completed ?? '—', caption: 'All time', icon: 'checkmark-circle', action: onHistory },
-        ].map(m => <Pressable key={m.label} onPress={m.action} accessibilityRole="button" accessibilityLabel={`${m.label}: ${m.value}. ${m.caption}`} style={({ pressed }) => [s.metric, cargo && s.cargoMetric, { ...(cargo ? {} : mats.compactShade), backgroundColor: cargo ? colors.surfaceContainer : kpiBgColor, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
-          {!cargo && !settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={isDark ? ['rgba(255,255,255,0.05)', 'transparent'] : ['rgba(255,255,255,0.6)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, { borderRadius: 18 }]} />}
-          <View style={s.metricTopRow}>
-            {!cargo ? <View style={[s.metricIconTile, { ...mats.clayTile, backgroundColor: iconTileBg, shadowColor: colors.shadow }]}>
-              <Ionicons name={m.icon} size={18} color={colors.primary} />
-            </View> : null}
-            <Text style={[s.metricValue, cargo && type.titleLg, { color: cargo ? colors.onSurface : kpiTextColor }]}>{m.value}</Text>
+          { label: 'Upcoming trips', value: confirmed ? `${upcoming}${capped ? '+' : ''}` : '—', caption: confirmed ? cargo ? 'Assigned queue' : 'View assignments' : 'Not yet confirmed', action: onTrips },
+          { label: 'Trips completed', value: completed ?? '—', caption: 'All time', action: onHistory },
+        ].map((m, index) => <Pressable key={m.label} onPress={m.action} accessibilityRole="button" accessibilityLabel={`${m.label}: ${m.value}. ${m.caption}`} style={({ pressed }) => [s.metric, spacious && s.metricStacked, index === 1 && (spacious ? { borderTopWidth: 1, borderTopColor: colors.outlineVariant, paddingTop: 12 } : { borderLeftWidth: 1, borderLeftColor: colors.outlineVariant, paddingLeft: 16 }), pressed && s.ctaPressed]}>
+          <Text style={[s.metricValue, { fontSize: moderateScale(30) * textScale, lineHeight: moderateScale(36) * textScale, color: colors.primary }]}>{m.value}</Text>
+          <View style={spacious ? s.flex : null}>
+            <Text style={[type.labelLg, { color: colors.onSurface }]}>{m.label}</Text>
+            <View style={s.metricActionRow}>
+              <Text style={[type.caption, s.flex, { color: colors.onSurfaceVariant }]}>{m.caption}</Text>
+              <Ionicons name="arrow-forward" size={14} color={colors.primary} accessible={false} />
+            </View>
           </View>
-          <Text style={[s.metricLabel, { color: kpiTextColor }]}>{m.label}</Text>
-          {!cargo ? <View style={s.metricActionRow}>
-            <Text style={[s.metricActionText, { color: kpiActionColor }]}>{m.caption}</Text>
-            <Ionicons name="chevron-forward" size={12} color={kpiActionColor} />
-          </View> : <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>{m.label === 'Trips completed' ? 'All time' : 'Assigned queue'}</Text>}
         </Pressable>)}
       </View>
-
-      {/* Assigned Vehicle Section (preserved untouched per instructions) */}
-      <Pressable onPress={onVehicle} accessibilityRole="button" accessibilityLabel="View assigned vehicle" style={({ pressed }) => [s.vehicle, { ...(cargo ? {} : mats.compactShade), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
-        <HomeClayIcon name="car-sport" small />
+      <Pressable onPress={onVehicle} accessibilityRole="button" accessibilityLabel="View assigned vehicle" style={({ pressed }) => [s.vehicle, { borderTopColor: colors.outlineVariant }, pressed && s.ctaPressed]}>
+        <View style={[s.vehicleIcon, { backgroundColor: cargo ? colors.primaryContainer : colors.secondaryContainer }]}><MaterialCommunityIcons name={cargo ? 'truck-outline' : 'car-outline'} size={23} color={cargo ? colors.onPrimaryContainer : colors.onSecondaryContainer} accessible={false} /></View>
         <View style={s.flex}><Text style={type.caption}>Assigned vehicle</Text><Text style={type.labelLg}>{vehicle?.model || (vehicle ? 'Assigned vehicle' : profileConfirmed ? 'No assigned vehicle' : 'Not yet confirmed')}</Text>{vehicle?.plate ? <Text style={type.caption}>{vehicle.plate}</Text> : null}</View>
-        {imageUri && failedImage !== imageUri ? <Image key={imageUri} source={{ uri: imageUri }} resizeMode="contain" fadeDuration={0} style={s.vehicleImage} onError={() => setFailedImage(imageUri)} accessible={false} /> : null}
+        {imageUri && failedImage !== imageUri && !spacious ? <Image key={imageUri} source={{ uri: imageUri }} resizeMode="contain" fadeDuration={0} style={s.vehicleImage} onError={() => setFailedImage(imageUri)} accessible={false} /> : null}
         <Ionicons name="chevron-forward" size={18} color={colors.primary} />
       </Pressable>
     </View>
@@ -129,7 +131,7 @@ export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace
   const source = /\bRESTAURANT(?:_|\b)/i.test(service) ? 'Restaurant cargo' : /\bHOTEL(?:_|\b)/i.test(service) ? 'Hotel cargo' : 'Cargo assignment';
   const heading = loading ? "Checking driver type" : workspaceHeading(workspace);
   const problem = loading ? "Confirming your saved driver profile." : workspaceProblem(workspace);
-  if (compact && !loading && !unassigned && !blocked) return <View style={[s.row, { paddingHorizontal: 4 }]}><Ionicons name="cube-outline" size={16} color={colors.primary} /><Text style={type.caption}>{heading}</Text></View>;
+  if (compact && !loading && !unassigned && !blocked) return <View style={[s.row, { paddingHorizontal: 4 }]}><Ionicons name={cargo ? 'cube-outline' : 'car-outline'} size={16} color={colors.primary} /><Text style={type.caption}>{heading}</Text></View>;
   return <ClayCard variant="standard">
     <View style={[s.row, { alignItems: 'flex-start' }]}>
       <Ionicons name={unassigned ? 'help-circle-outline' : cargo ? 'cube-outline' : 'car-outline'} size={24} color={colors.primary} accessible={false} />
@@ -152,11 +154,11 @@ export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace
 });
 
 // One molded icon treatment for the Home metrics, vehicle and shortcuts.
-function HomeClayIcon({ name, small = false }) {
+function HomeClayIcon({ name, warm = false }) {
   const { colors, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
-  return <View style={[s.actionIcon, small && s.smallIcon, { ...mats.clayTile, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-    <Ionicons name={name} size={small ? 21 : 25} color={colors.primary} />
+  return <View style={[s.actionIcon, { ...mats.clayTile, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+    <Ionicons name={name} size={24} color={warm ? colors.secondary : colors.primary} />
   </View>;
 }
 
@@ -165,8 +167,7 @@ export const HomeQuickActions = memo(function HomeQuickActions({ actions, scroll
   const { activeMilestone, walkthroughActive, tutorialTransitioning, pendingTourDestination } = useCoachMarkStatus();
   const { notifyInteraction, isTourShortcutActive } = useCoachMarkActions();
   const [expanded, setExpanded] = useState(false);
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === 'dark');
+  const { colors, type } = useTheme();
   const { settings } = useSettings();
   const { width, fontScale } = useWindowDimensions();
   const largeText = fontScale > 1.3 || settings.textSize === 'large';
@@ -178,7 +179,7 @@ export const HomeQuickActions = memo(function HomeQuickActions({ actions, scroll
     setExpanded((prev) => !prev);
   };
 
-  return <View style={[s.actions, { ...(cargo ? {} : mats.clayShade), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }, cargo && { borderRadius: 16, padding: 8, gap: 8 }]}>
+  return <View style={s.actions}>
     {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: toggleExpanded, toggle: true }] : [])].map(a => {
       const targetId = a.targetId || (a.label === 'Report Incident' ? 'home.shortcut_incident' : a.label === 'Fuel' ? 'home.shortcut_fuel' : null);
       const handlePress = async () => {
@@ -238,7 +239,7 @@ export const HomeQuickActions = memo(function HomeQuickActions({ actions, scroll
             pressed ? { transform: [{ scale: QUICK_ACTION_PRESS.scale }] } : null,
           ]}
         >
-          <HomeClayIcon name={a.icon} />
+          <HomeClayIcon name={a.icon} warm={!cargo} />
           <Text style={[type.caption, { color: colors.onSurface, textAlign: 'center' }]}>{a.label}</Text>
         </Pressable>
       );
@@ -278,16 +279,15 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
   const { width, fontScale } = useWindowDimensions();
   const { settings } = useSettings();
   const mats = clayMaterials(scheme === 'dark');
-  // Raised-control and pill edges for the scheme-dependent surfaces in this
-  // card (accent tag, primary CTA, status pill) — the light recipe washes
-  // out on dark's pale accents.
   const raised = scheme === 'dark' ? raisedControlDark : raisedControl;
   const pillEdges = scheme === 'dark' ? pillEdgesDark : pillEdgesLight;
   const v = VARIANT[variant] ?? (current ? VARIANT.current : VARIANT.next);
   const isCurrent = v.isCurrent;
   // Current card: forest green. Scheduled cards: muted teal.
   const accent = isCurrent ? colors.primary : colors.info;
-  const onAccent = isCurrent ? colors.onPrimary : '#FFFFFF';
+  const scheduleTone = statusColorForTone(colors, 'info');
+  const tagBackground = isCurrent ? colors.primary : scheduleTone.bg;
+  const onAccent = isCurrent ? colors.onPrimary : scheduleTone.fg;
   const action = trip ? homeTripAction(trip, nowMs, { preShiftPassed }) : null;
   const date = trip?.departure_time ? new Date(trip.departure_time) : null;
   const validDate = date && Number.isFinite(date.getTime());
@@ -306,11 +306,9 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
   ], [trip?.origin, trip?.destination, cargo, depTime]);
 
   return <View style={[s.trip, cargo && s.cargoTrip, { ...(cargo ? mats.compactShade : mats.clayShade), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-    {/* Inner top highlight — clay's "light from above". Skipped in
-        high-contrast mode where decoration must not soften legibility. */}
     {!settings.highContrast && Platform.OS !== 'android' ? <LinearGradient pointerEvents="none" colors={scheme === 'dark' ? ['rgba(255,253,252,0.07)', 'rgba(255,253,252,0)'] : ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={s.tripSheen} /> : null}
     <View style={[s.row, { flexWrap: 'wrap', justifyContent: 'space-between' }]}>
-      <View style={[s.cardTag, pillEdges, { backgroundColor: accent }]}>
+      <View style={[s.cardTag, pillEdges, { backgroundColor: tagBackground }]}>
         <Text style={[type.label, { color: onAccent, letterSpacing: 0.8 }]}>{v.label}</Text>
       </View>
       {trip ? <View style={[s.status, pillEdges, { backgroundColor: sc.bg }]}>
@@ -362,9 +360,9 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
           at any width, with no overlap into the text column. */}
       {!isCurrent ? <Image source={MAP_IMAGE} resizeMode="contain" accessible={false} style={[s.mapArt, scheme === 'dark' && { opacity: 0.85 }]} /> : null}
     </View> : <>
-      {cargo ? <View style={[s.cargoLoadHeading, { backgroundColor: colors.primaryContainer }]}>
-        <Ionicons name="cube-outline" size={30} color={colors.onPrimaryContainer} />
-        <View style={s.flex}><Text style={[type.labelLg, { color: colors.onPrimaryContainer }]}>Cargo delivery</Text><Text style={[type.cardTitle, { color: colors.onPrimaryContainer }]}>{loadTitle(trip)}</Text>{loadSubtitle(trip) ? <Text style={[type.supporting, { color: colors.onPrimaryContainer }]}>{loadSubtitle(trip)}</Text> : null}</View>
+      {!workspaceBlocked ? <View style={s.tripIdentity}>
+        <View style={[s.tripIdentityIcon, { backgroundColor: cargo ? colors.primaryContainer : colors.secondaryContainer }]}><Ionicons name={cargo ? 'cube-outline' : 'people-outline'} size={24} color={cargo ? colors.onPrimaryContainer : colors.onSecondaryContainer} accessible={false} /></View>
+        <View style={s.flex}><Text style={type.caption}>{cargo ? 'Cargo delivery' : trip.is_vip ? 'VIP guest' : 'Guest transfer'}</Text><Text style={type.cardTitle}>{loadTitle(trip)}</Text>{loadSubtitle(trip) ? <Text style={type.supporting}>{loadSubtitle(trip)}</Text> : null}</View>
       </View> : null}
       <Text style={type.caption}>{trip.dispatch_number || `Trip #${trip.trip_id}`}</Text>
       <Text style={type.labelLg}>{validDate ? `${depDate} · ${depTime}` : 'Departure time not provided'}</Text>
@@ -383,13 +381,6 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
               </View>
             </View>
           </View>)}
-          {/* Cargo rows show kilograms, never a guest count; a missing weight
-              renders nothing rather than a fabricated zero. */}
-          {(() => {
-            if (workspaceBlocked) return null;
-            if (isCargoLoad(trip)) return null;
-            return trip.passenger_count != null ? <View style={s.row}><Ionicons name="people" size={16} color={accent} /><Text style={type.supporting}>{trip.passenger_count} {Number(trip.passenger_count) === 1 ? 'passenger' : 'passengers'}</Text></View> : null;
-          })()}
           {cargo && (trip.vehicle_model || trip.model || trip.vehicle_plate || trip.plate_number) ? <View style={s.row}>
             <Ionicons name="car-outline" size={16} color={accent} />
             <Text style={[type.supporting, s.flex]}>{[trip.vehicle_model || trip.model, trip.vehicle_plate || trip.plate_number].filter(Boolean).join(' · ')}</Text>
@@ -418,11 +409,14 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
 });
 
 export const AssignmentsHeading = memo(function AssignmentsHeading({ onPress, title = 'Today’s Assignments' }) {
-  const { colors } = useTheme();
-  return <View style={[s.row, s.headingRow]}>
-    <Text style={[s.headingTitle, { color: colors.onSurface }]} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
+  const { colors, type } = useTheme();
+  const { width, fontScale } = useWindowDimensions();
+  const { settings } = useSettings();
+  const stacked = width < 380 || fontScale > 1.3 || settings.textSize === 'large';
+  return <View style={[s.row, s.headingRow, stacked && { flexDirection: 'column', alignItems: 'flex-start', gap: 0 }]}>
+    <Text style={[type.cardTitle, s.headingTitle, { color: colors.onSurface }]}>{title}</Text>
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="View full schedule" hitSlop={6} style={({ pressed }) => [s.scheduleLink, pressedStyle({ pressed })]}>
-      <Text style={[s.scheduleLinkText, { color: colors.primary }]}>View Full Schedule</Text>
+      <Text style={[type.caption, { color: colors.primary }]}>View Full Schedule</Text>
       <Ionicons name="chevron-forward" color={colors.primary} size={14} />
     </Pressable>
   </View>;
@@ -431,32 +425,33 @@ export const AssignmentsHeading = memo(function AssignmentsHeading({ onPress, ti
 const s = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headingRow: { justifyContent: 'space-between', flexWrap: 'nowrap', marginTop: 4, marginBottom: 2 },
-  headingTitle: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(17), lineHeight: moderateScale(22), flexShrink: 1, letterSpacing: -0.2 },
-  scheduleLink: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 },
-  scheduleLinkText: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(13), lineHeight: moderateScale(18) },
+  headingTitle: { flexShrink: 1, letterSpacing: -0.2 },
+  scheduleLink: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 },
   heroShell: { borderRadius: 28 },
-  cargoOverview: { borderRadius: 20 }, cargoOverviewBody: { padding: 12, borderRadius: 20 },
-  cargoDuty: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, gap: 12 },
-  cargoMetrics: { gap: 8 }, cargoMetric: { minWidth: 0, alignItems: 'center', padding: 10, borderRadius: 12 },
-  cargoTrip: { borderRadius: 20, padding: 16 },
-  cargoLoadHeading: { padding: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  heroScene: { padding: 18, paddingBottom: 14, borderRadius: 26, overflow: 'hidden' },
+  sceneComposition: { minHeight: 136, justifyContent: 'center', position: 'relative', marginTop: 8 },
+  sceneCompositionStacked: { minHeight: 0, gap: 6 },
+  sceneCompositionPlain: { minHeight: 0, paddingVertical: 12 },
+  sceneTitle: { width: '51%', fontFamily: fonts.display, letterSpacing: -0.65, zIndex: 1 },
+  sceneTitleWide: { width: '100%' },
+  sceneArt: { position: 'absolute', right: -32, bottom: -8, width: '65%', height: 156, pointerEvents: 'none' },
+  sceneArtStacked: { position: 'relative', right: 0, bottom: 0, width: '90%', maxWidth: 340, height: undefined, aspectRatio: 1.65, alignSelf: 'flex-end' },
+  dutyRibbon: { borderTopWidth: 1, paddingTop: 10, marginTop: 6, gap: 10, flexDirection: 'row', alignItems: 'center' },
+  heroSummary: { paddingHorizontal: 18, paddingBottom: 14 },
+  metrics: { flexDirection: 'row', paddingVertical: 12, gap: 16 },
+  metricsStacked: { flexDirection: 'column', gap: 10 },
+  metric: { flex: 1, minWidth: 0, minHeight: 72, justifyContent: 'center' },
+  metricStacked: { flexDirection: 'row', alignItems: 'center', gap: 16, justifyContent: 'flex-start' },
+  metricValue: { fontFamily: fonts.display, fontVariant: ['tabular-nums'], letterSpacing: -0.7 },
+  metricActionRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  vehicle: { flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, paddingTop: 12, minHeight: 64 },
+  vehicleIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  vehicleImage: { width: 64, height: 48, borderRadius: 10 },
+  cargoTrip: { borderRadius: 24, padding: 16 },
+  tripIdentity: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  tripIdentityIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   cargoReadiness: { minHeight: 48, padding: 10, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
-  hero: { position: 'relative', overflow: 'hidden', borderRadius: 26, padding: 14 },
-  hotelBg: { position: 'absolute', top: -4, right: -12, width: 275, height: 160, pointerEvents: 'none' },
-  heroHeader: { maxWidth: '62%', zIndex: 1 },
-  heroDate: { letterSpacing: 1.4, fontWeight: '700' },
-  heroSubtitle: { marginTop: 3, fontSize: 14, lineHeight: 18 },
-  metrics: { flexDirection: 'row', gap: 8, marginTop: 10, zIndex: 2 },
-  metric: { flex: 1, minWidth: 120, padding: 10, borderRadius: 18, gap: 5 },
-  metricTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  metricIconTile: { width: 36, height: 36, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  metricValue: { fontSize: 26, fontWeight: '800', lineHeight: 28 },
-  metricLabel: { fontSize: 13, fontWeight: '700', marginTop: 2 },
-  metricActionRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  metricActionText: { fontSize: 12, fontWeight: '600' },
-  vehicle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, borderRadius: 20, padding: 10, minHeight: 64, zIndex: 2 },
-  vehicleImage: { width: 64, height: 48, borderRadius: 10 }, smallIcon: { width: 38, height: 38, borderRadius: 15 },
-  actions: { padding: 10, borderRadius: 24, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 6 },
+  actions: { paddingVertical: 4, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8 },
   shortcut: { alignItems: 'center', gap: 6, paddingVertical: 4, minWidth: 48 }, actionIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 18 },
   trip: { borderRadius: 24, padding: 14, gap: 12 }, status: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6 },
   tripSheen: { position: 'absolute', top: 0, left: 0, right: 0, height: 30, borderTopLeftRadius: 22, borderTopRightRadius: 22 },

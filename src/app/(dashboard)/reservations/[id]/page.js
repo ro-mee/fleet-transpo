@@ -546,7 +546,7 @@ export default function ReservationDetailPage() {
         onOpenChange={setCancelling}
         variant="danger"
         title="Cancel Transport Request"
-        message="Cancelling this request also stands down any dispatch and trip already raised for it, and queues a notice telling Booking the booking will not be fulfilled. Whether that notice leaves Fleet depends on the Booking gateway being connected — the result is reported when the cancellation completes."
+        message={request?.source_system === 'INTERNAL' ? 'Cancelling this internal request also stands down its eligible dispatch and trip. Cargo already recorded at pickup must be reviewed before it can be cancelled.' : 'Cancelling this request also stands down any dispatch and trip already raised for it, and queues a notice telling Booking the booking will not be fulfilled. Whether that notice leaves Fleet depends on the Booking gateway being connected — the result is reported when the cancellation completes.'}
         confirmLabel="Cancel request"
         cancelLabel="Keep request"
         requireReason

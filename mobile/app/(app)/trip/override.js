@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../../../lib/theme-context';
@@ -7,6 +7,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppAlert } from '../../../components/AppAlert';
 import { ClayButton, ClayCard, ClayTile, ClayInput } from '../../../components/clay';
 import { api, wasQueued } from '../../../lib/api';
+import { useAuth } from '../../../lib/auth';
+import { useConnectivity } from '../../../lib/connectivity-context';
+import { captureCargoSession, isCurrentCargoSession } from '../../../lib/cargo-sync';
+import { resolveDriverWorkspace } from '../../../lib/driver-workspace';
 
 // Generic arrival-override screen: the map's proximity pre-check found the
 // driver OUTSIDE the geofenced point, and the server gate (setTripStatus)
@@ -26,6 +30,16 @@ export default function TripOverrideScreen() {
   const insets = useSafeAreaInsets();
   const { tripId, action, distanceText, placeName, needsEnroute } = useLocalSearchParams();
 
+  const { user } = useAuth();
+  const { status } = useConnectivity();
+  const session = useRef(captureCargoSession(user?.employeeId));
+  const mounted = useRef(true), inFlight = useRef(false);
+  const context = useRef(null);
+  useLayoutEffect(() => {
+    context.current = { tripId, action, actorId: String(user?.employeeId), status };
+    return () => { context.current = null; };
+  }, [tripId, action, user?.employeeId, status]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const copy = ACTION_COPY[action] || ACTION_COPY['at-pickup'];
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -42,32 +56,49 @@ export default function TripOverrideScreen() {
       AppAlert.alert('Error', 'Missing trip reference. Go back and try again.');
       return;
     }
+    if (inFlight.current) return;
+    const snapshot = session.current;
+    const identity = { tripId, action, actorId: String(user?.employeeId) };
+    const current = () => mounted.current && isCurrentCargoSession(snapshot) && context.current?.status === 'online' && context.current.tripId === identity.tripId && context.current.action === identity.action && context.current.actorId === identity.actorId;
+    if (!ACTION_COPY[action] || !/^\d+$/.test(String(tripId)) || !current()) {
+      AppAlert.alert('Refresh required', 'Connect online and reopen the current trip from Map before confirming. Your reason is kept.');
+      return;
+    }
+    inFlight.current = true;
     setSubmitting(true);
     try {
-      const body = overrideBody(r);
-      if (action === 'at-pickup') {
-        await api.put(`/api/trips/${tripId}/at-pickup`, body);
-      } else if (action === 'onboard') {
-        const res = await api.put(`/api/trips/${tripId}/onboard`, body);
-        if (wasQueued(res)) {
-          AppAlert.alert('Saved for sync', "This update will be sent when you're online.");
-        }
-        // En Route is the ungated mid-leg consequence of onboard.
-        await api.put(`/api/trips/${tripId}/enroute`, {});
-      } else {
-        if (needsEnroute === '1') {
-          await api.put(`/api/trips/${tripId}/enroute`, {});
-        }
-        const res = await api.put(`/api/trips/${tripId}/dropoff`, body);
-        if (wasQueued(res)) {
-          AppAlert.alert('Saved for sync', "This update will be sent when you're online.");
-        }
+      const options = { queueOnFailure: false, cargoActorId: snapshot.actorId, signal: snapshot.signal };
+      const [rows, profile] = await Promise.all([
+        api.get(`/api/mobile/driver/trips?trip_id=${encodeURIComponent(String(tripId))}`, options),
+        api.get('/api/driver/me', options),
+      ]);
+      if (!current()) return;
+      const trip = Array.isArray(rows) ? rows.find(row => String(row.trip_id) === String(tripId)) : null;
+      const allowed = action === 'at-pickup' ? ['Trip Started'] : action === 'onboard' ? ['At Pickup', 'Passenger Onboard'] : needsEnroute === '1' ? ['Passenger Onboard', 'En Route'] : ['En Route'];
+      if (!trip || !allowed.includes(trip.trip_status) || resolveDriverWorkspace({ driverType: profile?.driverType, trip }).tripReady !== true) {
+        throw new Error('The current assignment or trip step changed. Return to Map and refresh before continuing. Your reason is kept.');
       }
-      router.replace('/(app)/(tabs)/map');
+      const write = async (endpoint, body) => {
+        if (!current()) throw new Error('Your session or connection changed. Return to Map and refresh.');
+        const result = await api.put(`/api/trips/${tripId}/${endpoint}`, body, options);
+        if (!current()) throw new Error('Your session or connection changed. Return to Map and refresh.');
+        if (wasQueued(result)) throw new Error('Fleet has not confirmed this update. Reconnect and refresh Map before retrying. Your reason is kept.');
+      };
+      const body = overrideBody(r);
+      if (action === 'at-pickup') await write('at-pickup', body);
+      else if (action === 'onboard') {
+        if (trip.trip_status === 'At Pickup') await write('onboard', body);
+        await write('enroute', {});
+      } else {
+        if (trip.trip_status === 'Passenger Onboard') await write('enroute', {});
+        await write('dropoff', body);
+      }
+      if (current()) router.replace('/(app)/(tabs)/map');
     } catch (e) {
-      AppAlert.alert('Error', e.message || 'Could not update trip');
+      if (mounted.current && isCurrentCargoSession(snapshot)) AppAlert.alert('Update not confirmed', e.message || 'Could not update trip. Your reason is kept.');
     } finally {
-      setSubmitting(false);
+      inFlight.current = false;
+      if (mounted.current) setSubmitting(false);
     }
   };
 

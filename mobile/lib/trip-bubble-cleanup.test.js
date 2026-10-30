@@ -17,13 +17,13 @@ function hooks() {
   }, useRef: value => ({ current: value }), useEffect: fn => { effects.push(fn); }, useCallback: fn => fn };
   return { react, effects, render: fn => { index = 0; return fn(); } };
 }
-async function component(path, dependencies) {
+async function component(path, dependencies, globals = {}) {
   const { code } = await transform(readFileSync(path, 'utf8'), { loader: 'jsx', format: 'cjs' });
   const scope = { exports: {} };
   runInNewContext(code, { React, module: scope, exports: scope.exports, require: name => {
     if (!(name in dependencies)) throw new Error(`Unexpected dependency ${name}`);
     return dependencies[name];
-  } });
+  }, ...globals });
   return scope.exports;
 }
 function pendingOffer() {
@@ -93,7 +93,7 @@ describe('actual bubble redirect screen', () => {
       react: h.react, 'expo-router': { Redirect: 'Redirect', useLocalSearchParams: () => ({ tripId: '999' }) },
       '../lib/auth': { useAuth: () => auth }, '../lib/rbac': { isDriverSession }, '../lib/trip-deep-link': deepLink,
       '../lib/trip-bubble': { hideTripBubble: () => hidden.promise },
-    });
+    }, { Date: { now: () => 999 } });
     expect(h.render(RedirectTrip)).toBeNull(); h.effects.splice(0).forEach(effect => effect());
     hidden.resolve(); await flush();
     const rendered = h.render(RedirectTrip);
@@ -101,8 +101,9 @@ describe('actual bubble redirect screen', () => {
     else {
       const href = rendered.props.href;
       expect(typeof href === 'string' ? href : href.pathname).toBe(expected);
-      expect(JSON.stringify(href)).not.toContain('999');
-      if (expected.endsWith('/map')) expect(href.params.bubbleReturn).toMatch(/^\d+$/);
+      if (expected.endsWith('/map')) {
+        expect(href).toEqual({ pathname: expected, params: { bubbleReturn: '999' } });
+      } else expect(href).toBe(expected);
     }
   });
 });

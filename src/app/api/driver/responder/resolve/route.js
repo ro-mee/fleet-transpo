@@ -30,6 +30,10 @@ export async function POST(req) {
     // to add — an empty request is valid (parseOptionalBody), only malformed
     // JSON is a 400.
     const body = await parseOptionalBody(req);
+    const expectedIncidentId = body?.incident_id;
+    if (expectedIncidentId != null && (!Number.isSafeInteger(Number(expectedIncidentId)) || Number(expectedIncidentId) <= 0)) {
+      return errValidation({ incident_id: "A valid incident reference is required" });
+    }
     const note = typeof body.note === "string" ? body.note.trim() : "";
     if (note.length > 2000) {
       return errValidation({ note: "Resolution notes must be 2000 characters or fewer" });
@@ -49,6 +53,9 @@ export async function POST(req) {
     );
     const mission = missions[0];
     if (!mission) return err("No open responder assignment for this driver", 404);
+    if (expectedIncidentId != null && String(mission.incident_id) !== String(expectedIncidentId)) {
+      return err("Your responder assignment changed. Refresh this incident before continuing.", 409);
+    }
 
     const nameRow = employeeId
       ? await query(`SELECT first_name, last_name FROM employees WHERE employee_id = $1`, [employeeId])

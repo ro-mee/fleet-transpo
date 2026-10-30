@@ -76,6 +76,7 @@ export const WORKS = {
               { href: "/reservations/queue", label: "Request Queue" },
               { href: "/dispatch/calendar", label: "Dispatch" },
               { href: "/trips", label: "Trips" },
+              { href: "/cargo-review", label: "Cargo Review" },
               { href: "/routes", label: "Routes" },
               { href: "/incidents", label: "Incidents" },
               { href: "/fuel", label: "Fuel Management" },
@@ -132,6 +133,7 @@ export const WORKS = {
       {
         label: "Fleet Operations",
         items: [
+          { href: "/cargo-review", label: "Cargo Review", icon: ClipboardCheck },
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
           { href: "/fleet/assignments", label: "Driver Assignments", icon: UsersRound },
@@ -216,6 +218,7 @@ export const WORKS = {
       {
         label: "Operations",
         items: [
+          { href: "/cargo-review", label: "Cargo Review", icon: ClipboardCheck },
           { href: "/maintenance", label: "Maintenance", icon: Wrench },
           { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Activity },
           { href: "/maintenance/problems", label: "Problem Queue", icon: ListTodo },

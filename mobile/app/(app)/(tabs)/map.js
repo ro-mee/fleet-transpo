@@ -9,7 +9,7 @@ import TomTomMap from "../../../components/TomTomMap";
 import OffDutyIllustration from "../../../components/OffDutyIllustration";
 import { Logo } from "../../../components/logo";
 import RouteOptionsSheet from "../../../components/RouteOptionsSheet";
-import TripOperationalSummary, { CargoMapStandby } from "../../../components/TripOperationalSummary";
+import { CargoMapStandby } from "../../../components/TripOperationalSummary";
 import { navigationTarget } from "../../../lib/navigation-route";
 import { beginNavigationHandoff } from "../../../lib/navigation-handoff";
 import { launchExternalNavigation } from "../../../lib/external-navigation";
@@ -25,15 +25,18 @@ import { resolveDriverId } from "../../../lib/offline-cache";
 import { ClayCard } from "../../../components/clay/ClayCard";
 import { ClayBadge } from "../../../components/clay/ClayBadge";
 import { useConnectivity } from "../../../lib/connectivity-context";
-import { getDynamicBottomOffset } from "../../../components/CurvedPillTabBar";
+import { getDynamicBottomOffset, getTabBarHeight } from "../../../components/CurvedPillTabBar";
 import { useTheme } from "../../../lib/theme-context";
+import { useReducedMotion } from "../../../lib/use-reduced-motion";
 import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
 import { clayMaterials } from "../../../lib/clay";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useDuty } from "../../../lib/use-duty";
 import { useDriverProfile } from "../../../lib/driver-profile";
-import PassengerMapSummary from '../../../components/map/PassengerMapSummary';
+import MapTripSummary from '../../../components/map/MapTripSummary';
+import MapAssignmentNotice from '../../../components/map/MapAssignmentNotice';
+import { mapSheetGeometry } from '../../../lib/map-layout';
 import MapControlCluster from '../../../components/map/MapControlCluster';
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
@@ -57,7 +60,7 @@ import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
 import { resolveCargoMapGate, workspaceModeLabel, workspaceBlockReason } from "../../../lib/cargo-view-model";
 import { ClayButton } from "../../../components/clay/ClayButton";
 import { legForStatus } from "../../../lib/background-tracking";
-import { setTrackedTrip, captureTrackedTripRead, subscribeTripLocation, getTripLocation, retryTripLocation } from "../../../lib/trip-location-owner";
+import { setTrackedTrip, captureTrackedTripRead, subscribeTripLocation, getTripLocation, retryTripLocation, prepareTripNavigation, cancelTripNavigation, getTripTrackingStatus, subscribeTripTrackingStatus } from "../../../lib/trip-location-owner";
 
 // PR #3.1: a queued write reached the local outbox, NOT the server.
 // Transition behavior is unchanged; only the wording stays honest — the
@@ -257,10 +260,10 @@ function getOperationalRadarMarkers(userLocation, pendingTrips, driverType) {
       // `lat + 0.008`, which put a real dispatch pin roughly 900 m from
       // wherever the driver happened to be standing and reported a distance
       // and ETA to it.
-      if (t.origin_latitude == null || t.origin_longitude == null) return;
+      if (t.origin_latitude == null || t.origin_longitude == null || String(t.origin_latitude).trim() === '' || String(t.origin_longitude).trim() === '' || (t.pickup_location_provenance && t.pickup_location_provenance !== 'canonical_registry')) return;
       const tLat = Number(t.origin_latitude);
       const tLng = Number(t.origin_longitude);
-      if (!Number.isFinite(tLat) || !Number.isFinite(tLng)) return;
+      if (!Number.isFinite(tLat) || Math.abs(tLat) > 90 || !Number.isFinite(tLng) || Math.abs(tLng) > 180) return;
       const d = haversineKm(lat, lng, tLat, tLng);
       const isEmergency = t.special_requests?.toLowerCase().includes('emergency') || t.notes?.toLowerCase().includes('emergency');
       // Blocked mismatches render the STORED trip type so the driver can tell
@@ -279,11 +282,6 @@ function getOperationalRadarMarkers(userLocation, pendingTrips, driverType) {
         lat: tLat,
         lng: tLng,
         distanceKm: Number(d.toFixed(1)),
-        // Client estimate (haversine km × 20 km/h), NOT a routed ETA. Labelled
-        // "Est. arrival" in the card, and deliberately absent in production
-        // where no assignment pin is shown without coordinates anyway.
-        etaMinutes: Math.max(3, Math.round(d * 3.5)),
-        etaSource: 'client-estimate',
         status: t.trip_status,
         tripId: t.trip_id,
         rawData: t,
@@ -481,7 +479,8 @@ function MapTab() {
   const params = useLocalSearchParams();
   const { colors, scheme, type } = useTheme();
   const insets = useSafeAreaInsets();
-  const { height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight, fontScale } = useWindowDimensions();
+  const reducedMotion = useReducedMotion();
   const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
   const { activeMilestone, mapIntroPending, mapIntroAwaitingTap } =
     useCoachMarkStatus();
@@ -543,9 +542,17 @@ function MapTab() {
   // Same Meteocons art as the Home chip (the model now carries semantic keys,
   // not Ionicons names) — hoisted so no new object is built inside the JSX.
   const weatherArt = weather ? METEOCON_ASSETS[weather.icon] : null;
-  const standbyBottom = getDynamicBottomOffset(insets.bottom) + 64 + 16;
+  const standbyBottom = getDynamicBottomOffset(insets.bottom) + getTabBarHeight({ fontSize: type.caption?.fontSize, fontScale }) + 16;
   const [primarySheetHeight, setPrimarySheetHeight] = useState(260);
-  const maxSheetHeight = Math.max(120, Math.min(screenHeight * 0.72, screenHeight - standbyBottom - insets.top - 64));
+  const [navigationHeight, setNavigationHeight] = useState(0);
+  const { maxHeight: maxSheetHeight } = mapSheetGeometry({ height: screenHeight, top: insets.top, bottom: standbyBottom, content: primarySheetHeight, navigationHeight });
+  const [activeNoticeHeight, setActiveNoticeHeight] = useState(0);
+  const [standbyOverlayHeight, setStandbyOverlayHeight] = useState(0);
+  const [standbyBottomHeight, setStandbyBottomHeight] = useState(0);
+  const [markerHeight, setMarkerHeight] = useState(0);
+  const [tripTracking, setTripTracking] = useState(getTripTrackingStatus);
+  useEffect(() => subscribeTripTrackingStatus(setTripTracking), []);
+  const handleNavigationLayout = useCallback(({ height }) => setNavigationHeight(prev => prev === height ? prev : height), []);
   const collapsedY = screenHeight - standbyBottom - Math.min(primarySheetHeight, maxSheetHeight);
   const expandedY = screenHeight - standbyBottom - maxSheetHeight;
   const [driverLocation, setDriverLocation] = useState(null);
@@ -718,6 +725,11 @@ function MapTab() {
   const [panY] = useState(() => new Animated.Value(collapsedY));
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const sheetGeometry = mapSheetGeometry({ height: screenHeight, top: insets.top, bottom: standbyBottom, content: primarySheetHeight, expanded: isExpanded, minimized: isMinimized, navigationHeight });
+  const topAnchor = Math.max(insets.top, 20) + 10;
+  const activeRecoveryTop = topAnchor + navigationHeight + 12;
+  const activeViewportInsets = useMemo(() => ({ top: isMinimized && activeNoticeHeight ? activeRecoveryTop + activeNoticeHeight + 12 : topAnchor, bottom: sheetGeometry.controlBottom + 60, left: 16, right: 16 }), [isMinimized, activeNoticeHeight, activeRecoveryTop, topAnchor, sheetGeometry.controlBottom]);
+  const standbyViewportInsets = useMemo(() => ({ top: insets.top + 16 + standbyOverlayHeight + 12, bottom: standbyBottom + Math.max(106, standbyBottomHeight, selectedMarker ? markerHeight + 70 : 0) + 12, left: 16, right: 16 }), [insets.top, standbyOverlayHeight, standbyBottom, standbyBottomHeight, markerHeight, selectedMarker]);
 
   const isExpandedRef = useRef(false);
   const isMinimizedRef = useRef(false);
@@ -728,13 +740,15 @@ function MapTab() {
     setIsExpanded(expanded);
     setIsMinimized(false);
     isMinimizedRef.current = false;
+    panY.stopAnimation();
+    if (reducedMotion) { panY.setValue(expanded ? expandedY : collapsedY); return; }
     Animated.spring(panY, {
       toValue: expanded ? expandedY : collapsedY,
       tension: 50,
       friction: 8,
       useNativeDriver: false,
     }).start();
-  }, [panY, expandedY, collapsedY]);
+  }, [panY, expandedY, collapsedY, reducedMotion]);
 
   const snapToMinimized = useCallback((minimize) => {
     setIsMinimized(minimize);
@@ -743,21 +757,24 @@ function MapTab() {
       isExpandedRef.current = false;
       setIsExpanded(false);
     }
+    panY.stopAnimation();
+    if (reducedMotion) { panY.setValue(minimize ? screenHeight + 20 : collapsedY); return; }
     Animated.spring(panY, {
       toValue: minimize ? screenHeight + 20 : collapsedY,
       tension: 50,
       friction: 8,
       useNativeDriver: false,
     }).start();
-  }, [panY, screenHeight, collapsedY]);
+  }, [panY, screenHeight, collapsedY, reducedMotion]);
 
   useEffect(() => {
     snapToRef.current = snapTo;
   }, [snapTo]);
   useEffect(() => {
     // Measured copy, warnings and larger text must stay above the navigation pill.
+    if (reducedMotion) panY.stopAnimation();
     panY.setValue(isMinimizedRef.current ? screenHeight + 20 : isExpandedRef.current ? expandedY : collapsedY);
-  }, [panY, screenHeight, expandedY, collapsedY]);
+  }, [panY, screenHeight, expandedY, collapsedY, reducedMotion]);
 
   const panResponder = useRef(
     // eslint-disable-next-line react-hooks/refs -- RN gesture responder reads live drag refs; created once via lazy state
@@ -1391,9 +1408,8 @@ function MapTab() {
     };
     const isCurrent = () => appState.current === 'active' && isCurrentTrip();
     const openUrl = async url => {
-      const wantsBubble = operation.trackingReady && await tripBubbleRef.current.offer(isCurrent);
       if (!isCurrent()) throw new Error('Navigation trip changed');
-      if (wantsBubble) operation.bubbleToken = tripBubbleRef.current.arm(trip.trip_id, () => isCurrentTrip() && isGpsTrackedTrip(activeTripRef.current));
+      if (operation.trackingReady && operation.wantsBubble) operation.bubbleToken = tripBubbleRef.current.arm(trip.trip_id, () => isCurrentTrip() && isGpsTrackedTrip(activeTripRef.current));
       operation.launching = true;
       try {
         const result = await Linking.openURL(url);
@@ -1412,19 +1428,29 @@ function MapTab() {
         // Trip GPS starts only after acceptance, even when the pickup target is valid earlier.
         prepare: async options => {
           if (!isCurrent()) return { ok: false, reason: 'stale-trip' };
-          // The app-level owner starts the background task itself when the app
-          // loses visibility, so the handoff only confirms the permission the
-          // background run needs instead of preparing its own task.
+          // The single location owner verifies permission and native task
+          // registration before the driver leaves for Google Maps.
           const ready = isGpsTrackedTrip(trip)
-            ? await Location.getForegroundPermissionsAsync().then(
-                (permission) => permission.status === 'granted' ? { ok: true } : { ok: false, reason: 'permission-denied' })
+            ? await prepareTripNavigation(options)
             : { ok: false, reason: 'unsupported' };
           operation.trackingReady = ready.ok === true;
-          return ready;
+          if (!ready.ok) return ready;
+          operation.wantsBubble = await tripBubbleRef.current.offer(isCurrent);
+          if (!isCurrent()) {
+            await cancelTripNavigation(options);
+            return { ok: false, reason: 'stale-trip' };
+          }
+          // The optional shortcut can visit Android Settings. Recheck the owner
+          // after that wait; foreground return may have stopped preparation.
+          const finalReady = await prepareTripNavigation({ ...options, requestPermission: false });
+          operation.trackingReady = finalReady.ok === true;
+          return finalReady;
         },
-        // Nothing is started outside the owner's lifecycle: it reconciles
-        // visibility itself, so the handoff rollback has no native work to undo.
-        rollback: async () => { await operation.bubbleHidden; },
+        // A failed or cancelled launch releases only this owner's prepared task.
+        rollback: async () => {
+          await operation.bubbleHidden;
+          await cancelTripNavigation({ tripId: trip.trip_id, leg: legForStatus(trip.trip_status) });
+        },
       });
       if (result.ok || result.reason === 'stale-trip') return;
       if (result.reason === 'invalid-target') {
@@ -1468,13 +1494,17 @@ function MapTab() {
     </View>
   ) : <LottieView autoPlay loop source={require("../../../assets/globe.json")} style={styles.mapLoader} />;
   const gpsNotice = gpsState !== 'fresh' ? (
-    <View style={{ position: 'absolute', top: Math.max(insets.top, 20) + 76, left: 16, right: 80 }}>
+    <View>
       <ClayCard variant="compact">
         <Text accessibilityLiveRegion="polite" style={[type.supporting, { color: colors.onSurface }]}>{gpsState === 'delayed' ? 'GPS updates delayed. Your marker shows an earlier position.' : localGpsError || 'GPS signal unavailable. Your location may be out of date.'}</Text>
         <ClayButton label="Retry GPS" variant="tonal" onPress={retryLocationPermission} />
       </ClayCard>
     </View>
   ) : null;
+  const activeRecoveryContent = <>
+    {gpsNotice}
+          {tripTracking.state === 'paused' && String(tripTracking.tripId) === String(activeTrip?.trip_id) && tripTracking.leg === legForStatus(activeTrip?.trip_status) ? <ClayCard variant="compact"><Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurface }]}>Background tracking paused. Location updates may have stopped while another app was open.</Text><ClayButton label="Check tracking" variant="tonal" onPress={async () => { const result = await prepareTripNavigation({ tripId: activeTrip.trip_id, leg: legForStatus(activeTrip.trip_status), requestPermission: true }); if (!result.ok) AppAlert.alert('Tracking unavailable', 'Check location permissions in Settings, or keep FleetOps open.'); }} /></ClayCard> : null}
+  </>;
   const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
   const handleMapDragged = useCallback(() => {}, []);
 
@@ -1732,6 +1762,7 @@ function MapTab() {
           scrollEnabled={true}
           showCarIcon={true}
           radarMode={true}
+          viewportInsets={standbyViewportInsets}
           radarRadiusKm={radarRadiusKm}
           radarMarkers={filteredRadarMarkers}
           responders={NO_FLEET_RESPONDERS}
@@ -1749,18 +1780,18 @@ function MapTab() {
           </View>
         )}
 
-        {gpsNotice}
+        <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 16, left: 16, right: 16, maxHeight: Math.max(48, screenHeight - insets.top - standbyBottom - Math.max(126, selectedMarker ? markerHeight + 90 : 0, standbyBottomHeight + 12)) }}>
+          <ScrollView onLayout={event => setStandbyOverlayHeight(Math.ceil(event.nativeEvent.layout.height))} contentContainerStyle={{ gap: 10 }} showsVerticalScrollIndicator={false}>
         {/* Real-time Notification Banner */}
         {recentNotification && (
-          <View style={[styles.toastBanner, { top: insets.top + 92, backgroundColor: rTheme.topBarBg, borderColor: rTheme.primary }]}>
+          <View style={[styles.toastBanner, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.primary }]}>
             <View style={[styles.radarLiveDot, { backgroundColor: rTheme.primary }]} />
             <Text style={[styles.toastText, { color: rTheme.textPrimary }]}>{recentNotification}</Text>
           </View>
         )}
         
-        <CoachMarkTarget targetId="map.standby_status" style={[styles.standbyHeader, { top: insets.top + 16 }]}>
+        <CoachMarkTarget targetId="map.standby_status" style={{ alignSelf: "stretch" }}>
           <View
-            pointerEvents="none"
             style={[
               styles.standbyHeaderCard,
               mats.compactShade,
@@ -1777,17 +1808,20 @@ function MapTab() {
                 {!driverLocation ? 'Locating vehicle' : connectivity !== 'online' ? 'Connection interrupted' : poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error ? 'Live Tracking' : 'Tracking paused'}
               </Text>
             </View>
-            <Text style={[type.caption, { color: colors.onSurfaceVariant, marginTop: 4 }]}>Waiting for assignment</Text>
+            <Text style={[type.caption, { color: colors.onSurfaceVariant, marginTop: 4 }]}>{nearbyTrips.length ? `${nearbyTrips.length} assignment${nearbyTrips.length === 1 ? '' : 's'} ${tripConfirmed && connectivity === 'online' ? 'available' : 'saved'}` : loading ? 'Checking assignments…' : !tripConfirmed ? 'Assignments unavailable · refresh to retry' : 'Waiting for assignment'}</Text>
           </View>
         </CoachMarkTarget>
+        {gpsNotice}
+        <MapAssignmentNotice trips={nearbyTrips} confirmed={serverConfirmed && tripConfirmed && connectivity === 'online'} onOpen={() => router.push('/(app)/(tabs)/trips')} />
+        {!tripConfirmed && !nearbyTrips.length ? <ClayButton label="Refresh assignments" variant="tonal" onPress={loadTrip} /> : null}
 
         {/* Collapsible Interactive Radar Legend */}
-        {legendExpanded && <View style={[styles.legendCard, { top: insets.top + 92 }, mats.compactShade, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder, shadowColor: colors.shadow }]}>
+        {legendExpanded && <View style={[styles.legendCard, mats.compactShade, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder, shadowColor: colors.shadow }]}>
           <Pressable 
             onPress={() => setLegendExpanded(!legendExpanded)} 
             style={styles.legendHeaderRow}
             accessibilityRole="button"
-            accessibilityLabel="Toggle radar coverage legend"
+            accessibilityLabel="Toggle radar coverage legend" accessibilityState={{ expanded: legendExpanded }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View style={[styles.legendIndicatorDot, { backgroundColor: rTheme.primary }]} />
@@ -1880,7 +1914,7 @@ function MapTab() {
                 );
               })}
 
-              {Object.values(coverageVisibility).some((v) => !v) && (
+              {(DEMO_ENTITY_MODE ? Object.keys(coverageVisibility) : ['vehicle', 'assignment']).some(key => !coverageVisibility[key]) && (
                 <Pressable
                   onPress={showAllCoverage}
                   style={styles.legendShowAllBtn}
@@ -1895,6 +1929,9 @@ function MapTab() {
             </View>
           )}
         </View>}
+
+          </ScrollView>
+        </View>
 
         {/* radius 24 is half of the 48dp control, which is how a target says
             "I am round": the spotlight hole then becomes a circle instead of a
@@ -1917,7 +1954,7 @@ function MapTab() {
 
         {/* Compact Interactive Assignment / Station / Driver Card */}
         {selectedMarker && (
-          <View style={[
+          <ScrollView onLayout={event => setMarkerHeight(Math.ceil(event.nativeEvent.layout.height))} contentContainerStyle={{ padding: 16 }} style={[
             styles.selectedMarkerCard, 
             mats.clayShade,
             { 
@@ -1925,6 +1962,7 @@ function MapTab() {
               borderColor: rTheme.cardBorder,
               shadowColor: colors.shadow,
               bottom: standbyBottom + 70,
+              maxHeight: Math.max(96, screenHeight - insets.top - standbyBottom - 150),
             }
           ]}>
             <View style={styles.markerCardTopRow}>
@@ -1987,13 +2025,13 @@ function MapTab() {
               <View style={styles.markerCardMetaItem}>
                 <Ionicons name="location" size={14} color={rTheme.primary} />
                 <Text style={[styles.markerCardMetaText, { color: rTheme.textPrimary }]}>
-                  {selectedMarker.distanceKm != null ? `${selectedMarker.distanceKm} km away` : 'Nearby'}
+                  {selectedMarker.distanceKm != null ? `${selectedMarker.distanceKm} km straight-line` : 'Nearby'}
                 </Text>
               </View>
               <View style={styles.markerCardMetaItem}>
                 <Ionicons name="time-outline" size={14} color={rTheme.secondary} />
                 <Text style={[styles.markerCardMetaText, { color: rTheme.textPrimary }]}>
-                  Est. arrival: {selectedMarker.etaMinutes || 5} min
+                  Road ETA unavailable
                 </Text>
               </View>
             </View>
@@ -2065,12 +2103,12 @@ function MapTab() {
                 </Pressable>
               )}
             </View>
-          </View>
+          </ScrollView>
         )}
 
-        <View style={[styles.standbyWeather, { bottom: standbyBottom }]} pointerEvents={profile?.driverType === 'Cargo' ? 'auto' : 'none'}>
-          {profile?.driverType === 'Cargo' ? <CargoMapStandby completed={completedCargo?.session?.actorId === String(user?.employeeId) && isCurrentCargoSession(completedCargo?.session) ? completedCargo : null} onViewDetails={() => router.push(`/trip/${completedCargo.tripId}`)} onDismiss={() => setCompletedCargo(null)} /> : null}
-          {weather && profile?.driverType !== 'Cargo' && <ClayCard variant="compact" style={styles.standbyWeatherCard} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View onLayout={event => setStandbyBottomHeight(Math.ceil(event.nativeEvent.layout.height))} style={[styles.standbyWeather, { bottom: standbyBottom }]} pointerEvents={profile?.driverType === 'Cargo' ? 'auto' : 'none'}>
+          {profile?.driverType === 'Cargo' && !selectedMarker && !nearbyTrips.length ? <CargoMapStandby completed={completedCargo?.session?.actorId === String(user?.employeeId) && isCurrentCargoSession(completedCargo?.session) ? completedCargo : null} onViewDetails={() => router.push(`/trip/${completedCargo.tripId}`)} onDismiss={() => setCompletedCargo(null)} /> : null}
+          {weather && !selectedMarker && profile?.driverType !== 'Cargo' && <ClayCard variant="compact" style={styles.standbyWeatherCard} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             {weatherArt && <Image source={weatherArt} resizeMode="contain" accessible={false} style={{ width: 26, height: 26 }} />}
             <View style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto', minWidth: 0 }}>
               <Text style={[type.labelLg, { color: colors.onSurface }]}>{weather.temperature}</Text>
@@ -2143,6 +2181,8 @@ function MapTab() {
         dropoffLabel={isHeadingToPickup ? `Pickup: ${destName || 'TBD'}` : `${isCargoLoad(activeTrip) ? 'Delivery' : 'Drop-off'}: ${destName || 'TBD'}`}
         showCarIcon={true}
         autoSwoop={true}
+        viewportInsets={activeViewportInsets}
+        onNavigationLayout={handleNavigationLayout}
         topInset={Math.max(insets.top, 20) + 10}
         onRouteData={handleRouteMessage}
         onMapReady={handleMapReady}
@@ -2155,7 +2195,11 @@ function MapTab() {
         </View>
       )}
 
-      {gpsNotice}
+      {isMinimized && <View pointerEvents="box-none" style={{ position: 'absolute', top: activeRecoveryTop, left: 16, right: 16, maxHeight: Math.max(0, screenHeight - sheetGeometry.controlBottom - 60 - activeRecoveryTop) }}>
+        <ScrollView onLayout={event => setActiveNoticeHeight(Math.ceil(event.nativeEvent.layout.height))} contentContainerStyle={{ gap: 8 }}>
+          {activeRecoveryContent}
+        </ScrollView>
+      </View>}
       {/* Floating restore pill — appears when bottom sheet is hidden */}
       {activeTrip && isMinimized && (
         <Pressable
@@ -2164,7 +2208,8 @@ function MapTab() {
           accessibilityLabel="Show trip information"
           style={({ pressed }) => [{
             position: 'absolute',
-            bottom: 88,
+            bottom: sheetGeometry.restoreBottom,
+            minHeight: 48,
             alignSelf: 'center',
             flexDirection: 'row',
             alignItems: 'center',
@@ -2189,16 +2234,7 @@ function MapTab() {
         </Pressable>
       )}
 
-      {mapIntroActiveLayers}
-      
-      {activeTrip && (
-        <Animated.View 
-          style={[styles.bottomSheet, mats.clayShade, { transform: [{ translateY: panY }], height: panY.interpolate({ inputRange: [0, screenHeight - standbyBottom], outputRange: [screenHeight - standbyBottom, 0], extrapolate: 'clamp' }), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}
-        >
-          {/* Floating Map Controls (Sticks to top of sheet) */}
-          {/* radius 18 matches the control buttons' own corners, so the hole
-              outlines the row rather than falling back to the generic 12. */}
-          <CoachMarkTarget targetId="map.controls" radius={18} style={styles.floatingControlsContainer}>
+          <CoachMarkTarget targetId="map.controls" radius={18} style={[styles.floatingControlsContainer, { bottom: sheetGeometry.controlBottom }]}>
             <MapControlCluster buttonStyle={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]} controls={[
               { id: 'recenter', label: 'Recenter map on your location', icon: 'navigate', onPress: () => mapRef.current?.recenter() },
               { id: 'options', label: 'Route options', icon: 'options-outline', onPress: () => setRouteOptionsVisible(true) },
@@ -2206,24 +2242,28 @@ function MapTab() {
               { id: 'overview', label: 'Show full route overview', icon: 'scan-outline', color: colors.onSurfaceVariant, onPress: () => { mapRef.current?.overview(); snapToMinimized(true); } },
             ]} />
           </CoachMarkTarget>
+      {mapIntroActiveLayers}
 
+      {activeTrip && (
+        <Animated.View
+          style={[styles.bottomSheet, mats.clayShade, { transform: [{ translateY: panY }], height: panY.interpolate({ inputRange: [0, screenHeight - standbyBottom], outputRange: [screenHeight - standbyBottom, 0], extrapolate: 'clamp' }), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}
+        >
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
           <View onLayout={event => { const height = Math.ceil(event.nativeEvent.layout.height); setPrimarySheetHeight(previous => previous === height ? previous : height); }}>
           {/* eslint-disable-next-line react-hooks/refs -- spreading the once-created responder's handlers */}
       <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
-            <Pressable onPress={() => snapTo(!isExpandedRef.current)}>
+            <Pressable accessibilityRole="button" accessibilityLabel={isExpanded ? "Collapse trip information" : "Expand trip information"} accessibilityState={{ expanded: isExpanded }} style={{ minHeight: 48, alignItems: "center", justifyContent: "center", gap: 4 }} onPress={() => snapTo(!isExpandedRef.current)}>
               {/* Drag Handle */}
               <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant }]} />
-
-              <TripOperationalSummary cargo={cargoPresentation} trip={activeTrip} target={preStart ? activeTrip.origin : destName} preStart={preStart} readinessText={cargoReadinessText} pickupAt={pickupAt} routeData={routeData} routePhase={routePhase} routeStale={routeStale} routeDisabledReason={routeDisabledReason} expanded={isExpanded}>
-              <PassengerMapSummary {...{ activeTrip, destName, preDeparture, pickupAt, isPending, isDriverAccepted, isState1, isState2, isState3, isState4, routeData, routeStale, routeDisabledReason, activeBlocked, profile }} />
-              </TripOperationalSummary>
+              <Text style={[type.labelMd, { color: colors.onSurfaceVariant }]}>{isExpanded ? "Show less" : "Trip details"}</Text>
             </Pressable>
           </View>
+              {!isMinimized && <View style={{ gap: 8, marginBottom: 8 }}>{activeRecoveryContent}</View>}
+              <MapTripSummary cargo={cargoPresentation} trip={activeTrip} preStart={preStart} readinessText={cargoReadinessText} pickupAt={pickupAt} routeData={routeData} routePhase={routePhase} routeStale={routeStale} routeDisabledReason={routeDisabledReason} expanded={isExpanded} />
 
           {(routePhase === 'refreshing' || routeStale) && routeData ? <Text accessibilityLiveRegion="polite" style={[type.supporting, { marginBottom: 8 }]}>{routePhase === 'refreshing' ? 'Recalculating… Previous route remains visible.' : 'Route update unavailable. Previous route remains visible; its arrival estimate is out of date.'}</Text> : null}
-          {cargoPresentation ? <View style={{ gap: 8, marginBottom: 12 }}>
-            <ClayButton label="View trip details" variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}`)} />
+          {cargoPresentation && (isExpanded || preStart || isState2 || isState4) ? <View style={{ gap: 8, marginBottom: 12 }}>
+            {isExpanded ? <ClayButton label="View trip details" variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}`)} /> : null}
             {profile?.driverType === 'Cargo' && serverConfirmed && tripConfirmed && connectivity === 'online' && workspace.tripReady === true ? <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${['Drop-off', 'Arrived'].includes(activeTrip.trip_status) ? 'cargo-delivery' : activeTrip.trip_status === 'At Pickup' ? 'cargo-pickup' : 'cargo'}`)} /> : null}
             {(isState2 || isState4) ? <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>Cargo verification and Fleet clearance are required before this step can be confirmed.</Text> : null}
           </View> : null}
@@ -2266,12 +2306,12 @@ function MapTab() {
               </View>
             </View>
           )}
-          <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+          {(!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true) && <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
             <Text style={[type.labelLg, { color: colors.onSurface }]}>{workspaceModeLabel(workspace)}</Text>
             {(!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true) && <ClayButton label="Refresh assignment" onPress={() => Promise.allSettled([reloadProfile(), loadTrip()])} />}
             {workspace.tripReady === true && (!serverConfirmed || !tripConfirmed || connectivity !== "online") && <Text accessibilityRole="alert" style={type.supporting}>Connect online and refresh your profile and current trip before continuing.</Text>}
             {workspace.tripReady !== true && <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant, marginTop: 8 }]}>{workspaceBlockReason(workspace)}</Text>}
-          </View>
+          </View>}
           {preDeparture ? (
             <Pressable 
               style={({ pressed }) => [
@@ -2302,7 +2342,7 @@ function MapTab() {
                   (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
                   (isPending || isDriverAccepted) && preTripDone && !windowOpen ? `OPENS AT ${new Date(earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}` :
                   (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
-                  tripActionLabel(activeTrip.trip_status, profile?.driverType)
+                  isState4 ? "FINISH TRIP" : isState2 ? cargoPresentation ? "CONFIRM LOADING" : "CONFIRM BOARDING" : tripActionLabel(activeTrip.trip_status, profile?.driverType)
                 }
                 disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || (workspace.mode === 'cargo' && preStart ? !cargoStartReadiness.startReady && cargoStartReadiness.unavailableReason !== 'inspection' : preStart && preTripDone && !windowOpen)}
                 busy={inFlight}
@@ -2399,7 +2439,7 @@ function MapTab() {
                         } catch (e) {
                           // Check→PUT race (a new fix landed between the two
                           // calls): surface the same override offer.
-                          if (e?.status === 409) {
+                          if (e?.code === "GEOFENCE_OUTSIDE") {
                             offerOverride({
                               title: "Too far from pickup",
                               check: null,
@@ -2432,13 +2472,14 @@ function MapTab() {
                         try {
                           assertCurrentOperation(activeTrip);
                         const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
+                          if (wasQueued(onboardRes)) throw new Error("Pickup was not confirmed. Refresh Map before continuing.");
                           // En Route is the ungated mid-leg consequence of onboard.
                           assertCurrentOperation(activeTrip);
                         const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
                           confirmed = !wasQueued(onboardRes) && !wasQueued(enrouteRes);
                         } catch (e) {
-                          if (e?.status === 409) {
+                          if (e?.code === "GEOFENCE_OUTSIDE") {
                             offerOverride({
                               title: "Too far from pickup",
                               check: null,
@@ -2477,12 +2518,13 @@ function MapTab() {
                             assertCurrentOperation(activeTrip);
                         legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           }
+                          if (wasQueued(legRes)) throw new Error("Travel status was not confirmed. Refresh Map before continuing.");
                           assertCurrentOperation(activeTrip);
                         const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
                           confirmed = !wasQueued(legRes) && !wasQueued(dropRes);
                         } catch (e) {
-                          if (e?.status === 409) {
+                          if (e?.code === "GEOFENCE_OUTSIDE") {
                             offerOverride({
                               title: "Far from destination",
                               check: null,
@@ -2502,6 +2544,7 @@ function MapTab() {
                       }
                     } catch(e) {
                       AppAlert.alert("Error", e.message || "Could not update trip");
+                      loadTrip();
                     } finally {
                       setInFlight(false);
                     }
@@ -2609,7 +2652,6 @@ function MapTab() {
 }
 
 const styles = StyleSheet.create({
-  standbyHeader: { position: 'absolute', left: 20, right: 20 },
   standbyHeaderCard: {
     borderRadius: 20,
     borderWidth: 1,
@@ -2703,8 +2745,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   toastBanner: {
-    position: 'absolute',
-    alignSelf: 'center',
+    alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -2724,9 +2765,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   legendCard: {
-    position: 'absolute',
-    top: 104,
-    left: 16,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
@@ -2743,7 +2781,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 28,
+    minHeight: 48,
   },
   legendIndicatorDot: {
     width: 7,
@@ -2774,7 +2812,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 2,
+    minHeight: 48,
+    paddingVertical: 8,
   },
   legendItemLeft: {
     flexDirection: 'row',
@@ -2792,11 +2831,12 @@ const styles = StyleSheet.create({
   },
   legendLabel: {
     fontFamily: fonts.body,
-    fontSize: 11,
+    fontSize: 14,
   },
   legendShowAllBtn: {
     marginTop: 4,
-    paddingTop: 4,
+    minHeight: 48,
+    justifyContent: 'center',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(166, 199, 184, 0.2)',
     alignItems: 'center',
@@ -2813,7 +2853,6 @@ const styles = StyleSheet.create({
     right: 16,
     borderRadius: 24,
     borderWidth: 1,
-    padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
@@ -2900,7 +2939,6 @@ const styles = StyleSheet.create({
   },
   floatingControlsContainer: {
     position: 'absolute',
-    top: -58,
     left: 16,
     right: 16,
     flexDirection: 'row',
@@ -2925,8 +2963,8 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 16,
+    marginTop: 6,
+    marginBottom: 6,
     opacity: 0.4,
   },
   actionBtn: {

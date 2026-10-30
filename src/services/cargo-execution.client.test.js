@@ -35,14 +35,30 @@ it("reads the bounded trip execution without putting private detail URLs in a ca
   apiFetch.mockResolvedValue({ data: { trip_id: 7, version: 3 } });
 
   await expect(getCargoExecution(7)).resolves.toEqual({ trip_id: 7, version: 3 });
-  expect(apiFetch).toHaveBeenCalledWith("/api/trips/7/cargo?history_limit=20&history_offset=0");
+  expect(apiFetch).toHaveBeenCalledWith("/api/trips/7/cargo?history_limit=20&history_offset=0", { signal: undefined, cache: "no-store" });
+});
+
+it("forwards cancellation for the session-scoped current review", async () => {
+  const signal = new AbortController().signal;
+  apiFetch.mockResolvedValue({ data: { trip_id: 7 } });
+  await getCargoExecution(7, { signal });
+  expect(apiFetch).toHaveBeenCalledWith("/api/trips/7/cargo?history_limit=20&history_offset=0", { signal, cache: "no-store" });
 });
 
 it("requests a private photo only on explicit detail selection", async () => {
   apiFetch.mockResolvedValue({ data: { evidence: [{ evidence_id: evidenceId, url: "https://private.test/photo", expires_in: 300 }] } });
 
   await expect(getCargoEvidence(7, evidenceId)).resolves.toMatchObject({ evidence_id: evidenceId, expires_in: 300 });
-  expect(apiFetch).toHaveBeenCalledWith(`/api/trips/7/cargo?evidence_id=${evidenceId}`);
+  expect(apiFetch).toHaveBeenCalledWith(`/api/trips/7/cargo?evidence_id=${evidenceId}`, { signal: undefined, cache: "no-store" });
+});
+
+it("cancels photo detail reads and rejects links without a bounded lifetime", async () => {
+  const signal = new AbortController().signal;
+  apiFetch.mockResolvedValue({ data: { evidence: [{ evidence_id: evidenceId, url: "https://private.test/photo", expires_in: 300 }] } });
+  await getCargoEvidence(7, evidenceId, { signal });
+  expect(apiFetch).toHaveBeenLastCalledWith(`/api/trips/7/cargo?evidence_id=${evidenceId}`, { signal, cache: "no-store" });
+  apiFetch.mockResolvedValue({ data: { evidence: [{ evidence_id: evidenceId, url: "https://private.test/photo" }] } });
+  await expect(getCargoEvidence(7, evidenceId)).rejects.toThrow("unavailable");
 });
 
 it("wraps only the approved cargo commands and distinct integration retry", async () => {

@@ -105,7 +105,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: isDarkTheme ? colors.outlineVariant + "40" : "transparent" }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Text size" onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: isDarkTheme ? colors.outlineVariant + "40" : "transparent" }]}>
             <View style={styles.rowLeft}>
               <ClayTile icon="text" size="sm" variant="surface" />
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Text Size</Text>
@@ -124,6 +124,7 @@ export default function SettingsScreen() {
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>High Contrast Mode</Text>
             </View>
             <Switch
+              accessibilityLabel="High Contrast Mode"
               value={settings.highContrast}
               onValueChange={(val) => updateSetting('highContrast', val)}
               trackColor={{ false: colors.surfaceContainerHighest, true: colors.primary }}
@@ -153,6 +154,9 @@ export default function SettingsScreen() {
             {['small', 'medium', 'large'].map((size) => (
               <Pressable
                 key={size}
+                accessibilityRole="radio"
+                accessibilityLabel={`${size} text`}
+                accessibilityState={{ selected: tempTextSize === size }}
                 style={[
                   styles.modalOption,
                   pillEdges(isDarkTheme),

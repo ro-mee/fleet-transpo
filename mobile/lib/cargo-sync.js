@@ -103,7 +103,7 @@ async function syncOne(row, { actorId, generation, api, files, signal, isAuthori
     for (let index = 0; index < row.evidence.length; index += 1) {
       const evidence = row.evidence[index];
       ensureCurrent(actorId, generation, isAuthorized, row.tripId);
-      if (evidence.evidenceId) {
+      if (evidence.evidenceId && evidence.uploadSubmissionId === row.submissionId) {
         uploaded.push(evidence);
         continue;
       }
@@ -122,12 +122,12 @@ async function syncOne(row, { actorId, generation, api, files, signal, isAuthori
         }
       }
       ensureCurrent(actorId, generation, isAuthorized, row.tripId);
-      const response = await api.uploadEvidence(row.tripId, evidenceForm(evidence, evidence.uploadSubmissionId), actorId, signal);
+      const response = await api.uploadEvidence(row.tripId, evidenceForm(evidence, row.submissionId), actorId, signal);
       ensureCurrent(actorId, generation, isAuthorized, row.tripId);
       const view = response?.data ?? response;
       const evidenceId = view?.evidence_upload?.evidence_id;
       if (!evidenceId) throw Object.assign(new Error("Cargo upload response did not include an evidence ID."), { code: "CARGO_UPLOAD_RESPONSE_INVALID" });
-      const updatedEvidence = { ...evidence, evidenceId, uploadState: "UPLOADED" };
+      const updatedEvidence = { ...evidence, uploadSubmissionId: row.submissionId, evidenceId, uploadState: "UPLOADED" };
       uploaded.push(updatedEvidence);
       const nextEvidence = row.evidence.map((item, itemIndex) => itemIndex === index ? updatedEvidence : item);
       await updateCargoDraft(actorId, row.submissionId, { evidence: nextEvidence, syncState: "DEVICE_SAVED" }, isCurrent);

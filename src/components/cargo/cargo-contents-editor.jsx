@@ -18,7 +18,7 @@ export function CargoContentsEditor({ lines, onChange, errors = {}, calculatedKg
   const update = (index, field, value) => onChange(lines.map((line, at) => at === index ? { ...line, [field]: value } : line));
   return <section className="space-y-4 border-t border-border pt-5 md:col-span-2" aria-label="Cargo contents draft">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 className="text-sm font-semibold text-foreground">Cargo contents</h2><p className="mt-1 text-xs text-foreground-secondary">Unsaved local draft. Count ordered units separately from the packages being transported.</p></div>
+      <div><h2 className="text-sm font-semibold text-foreground">Cargo contents</h2><p className="mt-1 text-xs text-foreground-secondary">Count expected items separately from the packages being transported. Save the reservation to keep this item list.</p></div>
       <Button type="button" variant="outline" size="sm" disabled={lines.length >= 500} onClick={() => onChange([...lines, blankCargoDraftLine(crypto.randomUUID())])}><Plus className="mr-1 size-4" />Add item</Button>
     </div>
     {errors.lines && <p role="alert" className="text-xs text-danger">{errors.lines}</p>}

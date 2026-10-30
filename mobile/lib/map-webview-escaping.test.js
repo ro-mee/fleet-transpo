@@ -432,6 +432,9 @@ describe("TomTomMap demo entity gating", () => {
       .filter((line) => !line.trim().startsWith("//") && !line.trim().startsWith("*"))
       .join("\n");
     expect(code).not.toMatch(/lat \+ 0\.0\d\d/);
-    expect(code).toMatch(/if \(t\.origin_latitude == null \|\| t\.origin_longitude == null\) return;/);
+    const start = MAP_SCREEN.indexOf('function getOperationalRadarMarkers');
+    const end = MAP_SCREEN.indexOf('export const MAP_EMPTY_STATES', start);
+    const pins = runInNewContext(MAP_SCREEN.slice(start, end) + ";getOperationalRadarMarkers({lat:14.6,lng:121},[{trip_id:7,origin_latitude:null,origin_longitude:null}],'Passenger')", { DEMO_ENTITY_MODE: false });
+    expect(pins).toHaveLength(0);
   });
 });

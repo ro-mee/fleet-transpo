@@ -23,9 +23,10 @@ const BAR_HEIGHT = 64;
 const PILL_RADIUS = 36;
 const CENTER_BTN_SIZE = 54;
 const DOT_SIZE = 4.5;
-// Compact 92dp wave with gentle 10dp peak height
-const WAVE_WIDTH = 92;
-const WAVE_HEIGHT = 28;
+// Keep the existing wave asset tangent to the bar as its crest grows.
+const WAVE_WIDTH = 112;
+const WAVE_RISE = 18;
+const WAVE_HEIGHT = 28 * (WAVE_RISE / 10);
 const CONTAINER_PAD_TOP = 16;
 
 /**
@@ -40,6 +41,9 @@ export function getDynamicBottomOffset(insetsBottom) {
   if (insetsBottom >= 40) return insetsBottom + 4;
   return Math.max(Math.round(insetsBottom * 0.55), 10);
 }
+
+// Compatibility clearance for canonical Map; original bar height is restored.
+export function getTabBarHeight() { return BAR_HEIGHT; }
 
 export const CurvedPillTabBar = memo(function CurvedPillTabBar({
   state,
@@ -264,7 +268,7 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
         </View>
       </View>
 
-      {/* Seamless mathematical S-curve clay wave (92dp compact width, lowered 10dp peak) */}
+      {/* More pronounced S-curve around the existing scan button. */}
       {!isMap && <Image
         source={isDark ? waveDark : waveLight}
         style={styles.waveImage}
@@ -330,13 +334,13 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   // Seamless mathematical cubic Hermite spline S-curve wave:
-  // 92dp wide, gentle 10dp peak height. Baseline aligns with pill top at y = CONTAINER_PAD_TOP (16)
+  // The asset's original 10-of-28 baseline stays aligned with the pill top.
   waveImage: {
     position: "absolute",
     alignSelf: "center",
     width: WAVE_WIDTH,
     height: WAVE_HEIGHT,
-    top: CONTAINER_PAD_TOP - 10,
+    top: CONTAINER_PAD_TOP - WAVE_RISE,
     zIndex: 102,
   },
   // High zIndex ensures tab items are always above any background elements

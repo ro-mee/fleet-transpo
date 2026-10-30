@@ -562,7 +562,7 @@ function PreShiftInspection() {
               submitting
                 ? "SUBMITTING..."
                 : allAnswered
-                ? (screenMode === "preshift" ? "START YOUR SHIFT" : isCargoPreTrip ? statuses.brakes_tires === "FAIL" || statuses.cargo_secure === "FAIL" ? "SAVE BLOCKING ISSUE" : "SAVE PRE-TRIP CHECK" : "GOOD TO GO")
+                ? ((screenMode === "preshift" && failedCount > 0) || statuses.brakes_tires === "FAIL" || (isCargoPreTrip && statuses.cargo_secure === "FAIL") ? "SAVE BLOCKING ISSUE" : screenMode === "preshift" ? "START YOUR SHIFT" : isCargoPreTrip ? "SAVE PRE-TRIP CHECK" : "GOOD TO GO")
                 : (screenMode === "preshift" ? `COMPLETE ALL 5 ITEMS (${answeredCount}/${CHECKLIST.length})` : "CONFIRM ALL ITEMS TO CONTINUE")
             }
             variant="primary"

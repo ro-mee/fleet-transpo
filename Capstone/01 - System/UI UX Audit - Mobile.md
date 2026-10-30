@@ -1,5 +1,17 @@
 # UI/UX Audit — FleetOps Mobile (Driver App)
 
+## Selected style rollback — owner instruction, 2026-10-30
+
+Restored the original curved-wave navigation, shared clay card/button appearance and Home header decoration. Input styling/accessibility and popup changes were not selected for rollback; workflow/security/error-recovery fixes remain. This supersedes the earlier flat-navigation/material recommendations for those surfaces. Details, browser captures and final checks: [[Mobile Home Claymorphism Implementation Plan#Selected visual changes undone — 2026-10-30]].
+
+## Home artwork restoration — owner correction, 2026-10-29
+
+The audit's removal of the recent Cargo/Hotel illustrated Home design was not the intended enhancement. Restored the original scene images, headings/colors, top overview, summary/vehicle row, matching loading shapes and Home-only materials while retaining confirmed workflow/accessibility fixes. The earlier claim that an approved audit superseded the illustrated design is corrected by the owner's explicit instruction to preserve it. See [[Mobile Home Claymorphism Implementation Plan#Owner correction: restore the illustrated Home — 2026-10-29]] for scope/checks and visual limits.
+
+## Approved mobile cleanup — 2026-10-29
+
+Completed the existing 17-section source audit and its approved workflow/accessibility-first implementation. Home now prioritizes duty/current work and visible Incident; shared controls/materials, form feedback, policy reading, trip/Cargo recovery and responder identity are corrected. The current Elevated Clean direction supersedes older keep-clay and large illustrated Home entries below. See [[Mobile UI UX Audit 2026-10-29]] for findings, final checks and remaining device acceptance, and [[Mobile Architecture#Mobile usability implementation — 2026-10-29]] for the implemented contracts.
+
 ## FleetOps identity and route reveal - 2026-10-21
 
 Implemented the owner-provided full mobile launch rebrand: open route ribbons with a brass connection point, shared semibold wordmark, forest/ivory/brass and monochrome variants, rebuilt local route-to-mark animation and native app/splash assets. Existing clay product surfaces remain in place; brand positions now share the custom mark. Normal configured handoff is at most 2,080 ms, with bounded reduced-motion/error fallback and preserved startup lifecycle. See [[FleetOps Mobile Identity]] for changed/removed files and full verification.

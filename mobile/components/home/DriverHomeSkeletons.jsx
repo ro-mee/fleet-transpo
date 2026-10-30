@@ -99,148 +99,37 @@ export function ClaySkeleton({
   );
 }
 
-/**
- * 1:1 Content-Matched Skeleton for DriverHeroCard.
- * Sized and sculpted to match the exact ~245dp height of the loaded Hero Card,
- * eliminating Cumulative Layout Shift (CLS) without any rectangular shadow artifacts.
- */
+/** Loading shapes follow the illustrated scene, statistics strip and vehicle row. */
 export function DriverHeroCardSkeleton({ pulse }) {
-  const { colors, scheme } = useTheme();
-  const isDark = scheme === 'dark';
-
-  const kpiBgColor = isDark ? colors.primaryContainer : '#E5EEE7';
-  const iconTileBg = isDark ? colors.surfaceContainerLow : '#F3F7F4';
-  const kpiPulseColor = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16, 61, 49, 0.12)';
-
+  const { colors } = useTheme();
   return (
-    <View
-      style={[
-        styles.heroShell,
-        {
-          backgroundColor: colors.surfaceContainerLow,
-        },
-      ]}
-    >
-      <View style={styles.hero}>
-        {/* Header Placeholders: Date + Subtitle */}
-        <View style={styles.heroHeader}>
-          <ClaySkeleton
-            pulse={pulse}
-            width={110}
-            height={11}
-            borderRadius={5}
-          />
-          <ClaySkeleton
-            pulse={pulse}
-            width={180}
-            height={16}
-            borderRadius={6}
-            style={{ marginTop: 6 }}
-          />
+    <View style={[styles.heroShell, { backgroundColor: colors.surfaceContainerLow }]}>
+      <View style={[styles.heroScene, { backgroundColor: colors.primaryContainer }]}>
+        <ClaySkeleton pulse={pulse} width="38%" height={12} color={colors.onPrimaryContainer} />
+        <View style={styles.heroSceneRow}>
+          <View style={[styles.flex, { gap: 8 }]}>
+            <ClaySkeleton pulse={pulse} width="90%" height={22} color={colors.onPrimaryContainer} />
+            <ClaySkeleton pulse={pulse} width="75%" height={22} color={colors.onPrimaryContainer} />
+          </View>
+          <ClaySkeleton pulse={pulse} width="48%" height={112} borderRadius={28} color={colors.onPrimaryContainer} />
         </View>
-
-        {/* 2 KPI Stat Panels Side-by-Side */}
+      </View>
+      <View style={styles.heroSummary}>
         <View style={styles.metrics}>
           {[1, 2].map((key) => (
-            <View
-              key={key}
-              style={[
-                styles.metric,
-                {
-                  backgroundColor: kpiBgColor,
-                },
-              ]}
-            >
-              <View style={styles.metricTopRow}>
-                <View
-                  style={[
-                    styles.metricIconTile,
-                    {
-                      backgroundColor: iconTileBg,
-                    },
-                  ]}
-                >
-                  <ClaySkeleton
-                    pulse={pulse}
-                    width={20}
-                    height={20}
-                    borderRadius={6}
-                    color={kpiPulseColor}
-                  />
-                </View>
-                <ClaySkeleton
-                  pulse={pulse}
-                  width={34}
-                  height={24}
-                  borderRadius={6}
-                  color={kpiPulseColor}
-                />
-              </View>
-              <ClaySkeleton
-                pulse={pulse}
-                width="68%"
-                height={13}
-                borderRadius={5}
-                color={kpiPulseColor}
-                style={{ marginTop: 4 }}
-              />
-              <ClaySkeleton
-                pulse={pulse}
-                width="82%"
-                height={11}
-                borderRadius={4}
-                color={kpiPulseColor}
-                style={{ marginTop: 2 }}
-              />
+            <View key={key} style={styles.metric}>
+              <ClaySkeleton pulse={pulse} width={42} height={28} />
+              <ClaySkeleton pulse={pulse} width="85%" height={12} />
+              <ClaySkeleton pulse={pulse} width="65%" height={10} />
             </View>
           ))}
         </View>
-
-        {/* Assigned Vehicle Section Placeholder */}
-        <View
-          style={[
-            styles.vehicle,
-            {
-              backgroundColor: colors.surfaceContainerLow,
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.vehicleIconTile,
-              {
-                backgroundColor: iconTileBg,
-              },
-            ]}
-          >
-            <ClaySkeleton
-              pulse={pulse}
-              width={22}
-              height={22}
-              borderRadius={7}
-            />
-          </View>
+        <View style={[styles.vehicle, { borderTopColor: colors.outlineVariant }]}>
+          <ClaySkeleton pulse={pulse} width={44} height={44} borderRadius={16} />
           <View style={styles.flex}>
-            <ClaySkeleton
-              pulse={pulse}
-              width={88}
-              height={11}
-              borderRadius={4}
-            />
-            <ClaySkeleton
-              pulse={pulse}
-              width={140}
-              height={15}
-              borderRadius={5}
-              style={{ marginTop: 5 }}
-            />
+            <ClaySkeleton pulse={pulse} width="50%" height={11} />
+            <ClaySkeleton pulse={pulse} width="80%" height={15} style={{ marginTop: 5 }} />
           </View>
-          <ClaySkeleton
-            pulse={pulse}
-            width={18}
-            height={18}
-            borderRadius={9}
-          />
         </View>
       </View>
     </View>
@@ -375,23 +264,12 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   row: { flexDirection: 'row', alignItems: 'center' },
   heroShell: { borderRadius: 28, overflow: 'hidden' },
-  hero: { position: 'relative', overflow: 'hidden', borderRadius: 28, padding: 14 },
-  heroHeader: { maxWidth: '65%', zIndex: 1 },
-  metrics: { flexDirection: 'row', gap: 8, marginTop: 10, zIndex: 2 },
-  metric: { flex: 1, minWidth: 120, padding: 10, borderRadius: 18, gap: 5 },
-  metricTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  metricIconTile: { width: 36, height: 36, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  vehicle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 12,
-    borderRadius: 20,
-    padding: 10,
-    minHeight: 64,
-    zIndex: 2,
-  },
-  vehicleIconTile: { width: 38, height: 38, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  heroScene: { padding: 18, borderRadius: 26, gap: 12 },
+  heroSceneRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 136 },
+  heroSummary: { paddingHorizontal: 18, paddingBottom: 14 },
+  metrics: { flexDirection: 'row', gap: 24, paddingVertical: 12 },
+  metric: { flex: 1, minWidth: 0, gap: 6 },
+  vehicle: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 12, minHeight: 64, borderTopWidth: 1 },
   trip: { borderRadius: 24, padding: 14, gap: 12, overflow: 'hidden' },
   stopsBlock: { gap: 4, marginVertical: 4 },
   stopRow: { flexDirection: 'row', gap: 10 },

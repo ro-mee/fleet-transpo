@@ -26,8 +26,8 @@ export const radius = {
   none: 0,
   xs: moderateScale(2),
   sm: moderateScale(4),
-  control: moderateScale(8),
-  card: moderateScale(12),
+  control: moderateScale(12),
+  card: moderateScale(16),
   lg: moderateScale(16),
   xl: moderateScale(20),
   pill: 999,
@@ -256,7 +256,7 @@ export const m3 = (c) => ({
 });
 
 export function statusSurfaces(c = colors) {
-  const isDark = c === dark;
+  const isDark = c === dark || c === highContrastDark;
   return {
     success: isDark ? "#23483B" : "#DDEEE6",
     warning: isDark ? "#503C1E" : "#F6E8CF",
@@ -461,4 +461,4 @@ export function statusColors(c, status) {
   return statusColorForTone(c, tripStatusTone(status));
 }
 
-export const TOUCH_TARGET = moderateScale(48);
+export const TOUCH_TARGET = Math.max(48, moderateScale(48));

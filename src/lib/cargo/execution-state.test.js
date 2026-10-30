@@ -16,6 +16,18 @@ pickup.payload.handover = handover;
 delivery.payload.handover = handover;
 
 describe('cargo state from immutable records', () => {
+  it('requires actual manager acceptance for a clean internal pickup', () => {
+    const internal = { ...manifest, source_ref: { ...manifest.source_ref, system: 'INTERNAL', organization_id: 'fleetops' } };
+    const clean = { ...pickup, payload: { ...pickup.payload, lines: [{ ...pickup.payload.lines[0], observed_quantity: '10' }] } };
+    expect(run({ manifest: internal, pickup: clean, clearance: { ...clearance, decision_id: null } })).toMatchObject({ can_depart: false, pickup_state: 'AWAITING_DECISION' });
+  });
+  it('allows a current internal receiving review to explicitly accept a delivery difference', () => {
+    const internal = { ...manifest, source_ref: { ...manifest.source_ref, system: 'INTERNAL', organization_id: 'fleetops' } };
+    const received = { ...delivery, payload: { ...delivery.payload, lines: [{ ...delivery.payload.lines[0], observed_quantity: '8' }] }, receiver_proof: { ...delivery.receiver_proof, method: 'internal-manager-review', accepted_discrepancy: true } };
+    const result = run({ manifest: internal, decision: { ...decision, source_system: 'INTERNAL', source_organization_id: 'fleetops' }, clearance, delivery: received });
+    expect(result).toMatchObject({ can_complete: true, delivery_state: 'CONFIRMED' });
+    expect(result.lines[0].delivery_shortage).toBe('1');
+  });
   it('keeps unsigned history readable but cannot use legacy pickup clearance to depart or complete', () => {
     const legacy = { ...pickup, payload: { ...pickup.payload } };
     delete legacy.payload.handover;

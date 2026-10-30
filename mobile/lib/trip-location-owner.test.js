@@ -14,14 +14,14 @@ vi.mock("./cargo-sync", () => ({
 }));
 vi.mock("./api", () => ({ subscribeApiEvents: (listener) => { state.apiListeners.add(listener); return () => state.apiListeners.delete(listener); } }));
 vi.mock("./background-tracking", () => ({
-  startBackgroundTracking: vi.fn(), stopBackgroundTracking: vi.fn(), updateLegContext: vi.fn(), mergeStoredKm: vi.fn(),
+  prepareBackgroundTracking: vi.fn(), startBackgroundTracking: vi.fn(), stopBackgroundTracking: vi.fn(), updateLegContext: vi.fn(), mergeStoredKm: vi.fn(),
   legForStatus: (status) => ["Driver Accepted", "Trip Started", "At Pickup"].includes(status) ? "leg1" : "leg2",
 }));
 
 import { AppState } from "react-native";
 import * as Location from "expo-location";
-import { mergeStoredKm, startBackgroundTracking, stopBackgroundTracking, updateLegContext } from "./background-tracking";
-import { captureTrackedTripRead, getTripLocation, retryTripLocation, setTrackedTrip, subscribeTripLocation, useTripLocationOwner } from "./trip-location-owner";
+import { mergeStoredKm, prepareBackgroundTracking, startBackgroundTracking, stopBackgroundTracking, updateLegContext } from "./background-tracking";
+import { cancelTripNavigation, captureTrackedTripRead, getTripLocation, getTripTrackingStatus, prepareTripNavigation, retryTripLocation, setTrackedTrip, subscribeTripLocation, subscribeTripTrackingStatus, useTripLocationOwner } from "./trip-location-owner";
 
 const trip = { trip_id: 7, trip_status: "Trip Started" };
 const cleanups = [];
@@ -50,10 +50,124 @@ beforeEach(() => {
   AppState.currentState = "active";
   Location.requestForegroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.watchPositionAsync.mockResolvedValue({ remove: vi.fn() });
-  startBackgroundTracking.mockResolvedValue(undefined);
+  prepareBackgroundTracking.mockResolvedValue({ ok: true });
+  startBackgroundTracking.mockResolvedValue({ ok: true });
   stopBackgroundTracking.mockResolvedValue(undefined);
   updateLegContext.mockResolvedValue(undefined);
   mergeStoredKm.mockImplementation(async (ref) => { ref.current.leg1 += state.storedKm; state.storedKm = 0; });
+});
+
+describe("single-owner navigation readiness", () => {
+  const options = { tripId: 7, leg: "leg1", requestPermission: true };
+
+  it.each(["permission-denied", "start-failed", "unsupported"])("does not report ready after %s", async reason => {
+    await MountOwner(); await track();
+    prepareBackgroundTracking.mockResolvedValueOnce({ ok: false, reason });
+    expect(await prepareTripNavigation(options)).toEqual({ ok: false, reason });
+    expect(getTripTrackingStatus()).toEqual({ tripId: 7, leg: "leg1", state: "paused", reason });
+  });
+
+  it("prepares through the native queue without replacing the foreground collector", async () => {
+    await MountOwner(); const sample = await track();
+    sample(fix(14.6));
+    const remove = (await Location.watchPositionAsync.mock.results[0].value).remove;
+    const pending = deferred(); prepareBackgroundTracking.mockReturnValueOnce(pending.promise);
+    const ready = prepareTripNavigation(options); await settle();
+    expect(getTripTrackingStatus().state).toBe("preparing");
+    sample(fix(14.6005, 4000));
+    expect(getTripLocation()).toEqual(fix(14.6005, 4000));
+    pending.resolve({ ok: true });
+    expect(await ready).toEqual({ ok: true });
+    expect(prepareBackgroundTracking).toHaveBeenCalledWith({ ...options, isCurrent: expect.any(Function) });
+    expect(remove).not.toHaveBeenCalled();
+    expect(Location.watchPositionAsync).toHaveBeenCalledOnce();
+    expect(getTripTrackingStatus()).toEqual({ tripId: 7, leg: "leg1", state: "ready", reason: null });
+  });
+
+  it.each(["trip", "leg", "completion", "session", "visibility"])("invalidates late readiness after %s changes", async change => {
+    await MountOwner(); await track();
+    const pending = deferred(); prepareBackgroundTracking.mockReturnValueOnce(pending.promise);
+    const ready = prepareTripNavigation(options); await settle();
+    if (change === "trip") setTrackedTrip({ trip_id: 8, trip_status: "Trip Started" });
+    if (change === "leg") setTrackedTrip({ ...trip, trip_status: "Passenger Onboard" });
+    if (change === "completion") complete();
+    if (change === "session") state.signal.abort();
+    if (change === "visibility") { appState("background"); appState("active"); }
+    pending.resolve({ ok: true });
+    expect(await ready).toEqual({ ok: false, reason: "stale-trip" });
+    await settle();
+    expect(getTripTrackingStatus().state).not.toBe("ready");
+    expect(stopBackgroundTracking.mock.invocationCallOrder.at(-1)).toBeGreaterThan(prepareBackgroundTracking.mock.invocationCallOrder[0]);
+  });
+
+  it.each([{ tripId: 8, leg: "leg1" }, { tripId: 7, leg: "leg2" }])("refuses a mismatching request before native work: %s", async request => {
+    await MountOwner(); await track();
+    expect(await prepareTripNavigation(request)).toEqual({ ok: false, reason: "stale-trip" });
+    expect(prepareBackgroundTracking).not.toHaveBeenCalled();
+  });
+
+  it("refuses preparation while disabled or backgrounded", async () => {
+    expect(await prepareTripNavigation(options)).toEqual({ ok: false, reason: "stale-trip" });
+    await MountOwner(); await track(); appState("background"); await settle();
+    expect(await prepareTripNavigation(options)).toEqual({ ok: false, reason: "stale-trip" });
+    expect(prepareBackgroundTracking).not.toHaveBeenCalled();
+  });
+
+  it("publishes an automatic start failure and retains it for the returning Map", async () => {
+    await MountOwner(); await track();
+    const listener = vi.fn(); const unsubscribe = subscribeTripTrackingStatus(listener);
+    startBackgroundTracking.mockResolvedValueOnce({ ok: false, reason: "start-failed" });
+    appState("background"); await settle();
+    expect(startBackgroundTracking).toHaveBeenLastCalledWith(false, expect.any(Function));
+    expect(listener).toHaveBeenLastCalledWith({ tripId: 7, leg: "leg1", state: "paused", reason: "start-failed" });
+    appState("active"); await settle();
+    expect(getTripTrackingStatus().state).toBe("paused");
+    expect(await prepareTripNavigation(options)).toEqual({ ok: true });
+    expect(getTripTrackingStatus().state).toBe("ready");
+    unsubscribe(); const calls = listener.mock.calls.length;
+    complete(); await settle();
+    expect(listener).toHaveBeenCalledTimes(calls);
+    expect(getTripTrackingStatus()).toEqual({ tripId: null, leg: null, state: "idle", reason: null });
+  });
+
+  it("turns rejected background startup into visible paused status and recovers the queue", async () => {
+    await MountOwner(); await track();
+    startBackgroundTracking.mockRejectedValueOnce(new Error("native unavailable"));
+    appState("background"); await settle();
+    expect(getTripTrackingStatus()).toMatchObject({ state: "paused", reason: "start-failed" });
+    appState("active"); await settle();
+    expect(await prepareTripNavigation(options)).toEqual({ ok: true });
+  });
+
+  it("retains a failed background start that settles after returning to the Map", async () => {
+    await MountOwner(); await track();
+    const pending = deferred(); startBackgroundTracking.mockReturnValueOnce(pending.promise);
+    appState("background"); await settle();
+    appState("active");
+    pending.resolve({ ok: false, reason: "start-failed" }); await settle();
+    expect(getTripTrackingStatus()).toEqual({ tripId: 7, leg: "leg1", state: "paused", reason: "start-failed" });
+  });
+
+  it("cancels a prepared native task after a failed handoff without replacing foreground collection", async () => {
+    await MountOwner(); await track();
+    await prepareTripNavigation(options);
+    const stopped = stopBackgroundTracking.mock.calls.length;
+    expect(await cancelTripNavigation(options)).toEqual({ ok: true });
+    expect(stopBackgroundTracking).toHaveBeenCalledTimes(stopped + 1);
+    expect(getTripTrackingStatus().state).toBe("idle");
+    expect(Location.watchPositionAsync).toHaveBeenCalledOnce();
+  });
+
+  it("never cancels another trip or the lifecycle-owned background collector", async () => {
+    await MountOwner(); await track();
+    await prepareTripNavigation(options);
+    expect(await cancelTripNavigation({ tripId: 8, leg: "leg1" })).toEqual({ ok: false, reason: "stale-trip" });
+    appState("background"); await settle();
+    const stopped = stopBackgroundTracking.mock.calls.length;
+    expect(await cancelTripNavigation(options)).toEqual({ ok: false, reason: "stale-trip" });
+    expect(stopBackgroundTracking).toHaveBeenCalledTimes(stopped);
+    expect(getTripTrackingStatus().state).toBe("ready");
+  });
 });
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();

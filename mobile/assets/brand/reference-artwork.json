@@ -1,0 +1,53 @@
+{
+  "source": "Approved five-state reference boards, final-panel interiors; all rectangles are [left, top, width, height].",
+  "variants": {
+    "light": {
+      "source": "docs/design/mobile-launch/05-letter-arrival-light-v1-2026-10-28.png",
+      "crop": [
+        1333,
+        130,
+        312,
+        648
+      ],
+      "width": 312,
+      "height": 648,
+      "mark": [
+        28,
+        148,
+        268,
+        268
+      ],
+      "wordmark": [
+        28,
+        425,
+        264,
+        70
+      ],
+      "background": "#F9F6EF"
+    },
+    "dark": {
+      "source": "docs/design/mobile-launch/05-letter-arrival-dark-v1-2026-10-28.png",
+      "crop": [
+        1338,
+        136,
+        312,
+        630
+      ],
+      "width": 312,
+      "height": 630,
+      "mark": [
+        24,
+        160,
+        274,
+        246
+      ],
+      "wordmark": [
+        28,
+        415,
+        264,
+        65
+      ],
+      "background": "#001B15"
+    }
+  }
+}

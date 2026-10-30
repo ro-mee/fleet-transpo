@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
-  Linking,
   LayoutAnimation,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -31,11 +30,12 @@ const FAQS = [
   },
   {
     question: "I'm running late for a dispatch.",
-    answer: "Please call the Dispatch Hotline immediately using the contact button above. This allows our coordinators to quickly adjust schedules and notify waiting passengers or clients."
+    answer: "Contact your dispatcher using the contact details provided by your fleet manager. Tell them which assignment is delayed so they can adjust the schedule."
   }
 ];
 
 function FAQItem({ item, colors, isLast, isDark }) {
+  const { type } = useTheme();
   const [expanded, setExpanded] = useState(false);
 
   const toggle = () => {
@@ -46,12 +46,12 @@ function FAQItem({ item, colors, isLast, isDark }) {
   return (
     <View style={!isLast && { borderBottomWidth: 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }}>
       <Pressable style={styles.faqRow} onPress={toggle} accessibilityRole="button" accessibilityState={{ expanded }}>
-        <Text style={[styles.faqText, { color: colors.onSurface }]}>{item.question}</Text>
+        <Text style={[styles.faqText, type.bodyMd, { color: colors.onSurface }]}>{item.question}</Text>
         <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={16} color={colors.onSurfaceVariant} />
       </Pressable>
       {expanded && (
         <View style={styles.faqAnswerContainer}>
-          <Text style={[styles.faqAnswerText, { color: colors.onSurfaceVariant }]}>
+          <Text style={[styles.faqAnswerText, type.supporting, { color: colors.onSurfaceVariant }]}>
             {item.answer}
           </Text>
         </View>
@@ -63,7 +63,7 @@ function FAQItem({ item, colors, isLast, isDark }) {
 export default function HelpCenter() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, type } = useTheme();
   const isDark = scheme === "dark";
   const { resetTips } = useCoachMarkActions();
 
@@ -93,8 +93,8 @@ export default function HelpCenter() {
         <View style={styles.heroBox}>
           <ClayTile icon="headset" size={56} variant="primary" style={{ marginBottom: 4 }} />
           <Text style={[styles.heroTitle, { color: colors.onSurface }]}>How can we help?</Text>
-          <Text style={[styles.heroSub, { color: colors.onSurfaceVariant }]}>
-            Contact dispatch directly or check our frequently asked questions.
+          <Text style={[styles.heroSub, type.supporting, { color: colors.onSurfaceVariant }]}>
+            Check frequently asked questions and guidance for your work.
           </Text>
         </View>
 
@@ -104,9 +104,9 @@ export default function HelpCenter() {
           <View style={styles.trainingTop}>
             <ClayTile icon="bulb" size={44} variant="primary" />
             <View style={styles.trainingInfo}>
-              <Text style={[styles.trainingTitle, { color: colors.onSurface }]}>In-App Guidance Tips</Text>
-              <Text style={[styles.trainingSub, { color: colors.onSurfaceVariant }]}>
-                Tips explain the controls on your current screen. Read a section again above, or reset all tips to see them again during your normal work.
+              <Text style={[styles.trainingTitle, type.bodyMd, { color: colors.onSurface }]}>In-App Guidance Tips</Text>
+              <Text style={[styles.trainingSub, type.supporting, { color: colors.onSurfaceVariant }]}>
+                {DRIVER_GUIDES_V2 ? "Tips explain the controls on your current screen. Read a section again above, or reset tips to see them during your normal work." : "Tips explain controls as you use the app. Reset tips to see them again during your normal work."}
               </Text>
             </View>
           </View>
@@ -121,35 +121,10 @@ export default function HelpCenter() {
 
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>CONTACT</Text>
         <ClayCard variant="standard" style={styles.sectionCard}>
-          <Pressable
-            style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
-            onPress={() => Linking.openURL('tel:18001234567')}
-          >
-            <View style={styles.contactRowLeft}>
-              <ClayTile icon="call" size={38} variant="primary" />
-              <View>
-                <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Dispatch Hotline</Text>
-                <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>1-800-123-4567</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
-
-          <View style={[styles.divider, { backgroundColor: isDark ? colors.outlineVariant + "55" : "transparent" }]} />
-
-          <Pressable
-            style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
-            onPress={() => Linking.openURL('mailto:support@fleetops.com')}
-          >
-            <View style={styles.contactRowLeft}>
-              <ClayTile icon="mail" size={38} variant="primary" />
-              <View>
-                <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Email Support</Text>
-                <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>support@fleetops.com</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
+          <View style={{ padding: 20, gap: 8 }}>
+            <Text style={{ color: colors.onSurface }}>Support contact information is not configured.</Text>
+            <Text style={{ color: colors.onSurfaceVariant }}>Ask your fleet manager for the correct dispatch contact. For an immediate emergency, use SOS or call emergency services.</Text>
+          </View>
         </ClayCard>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>FAQ</Text>

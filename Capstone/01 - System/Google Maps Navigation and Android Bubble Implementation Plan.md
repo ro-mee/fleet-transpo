@@ -12,6 +12,11 @@ related: ["[[Tracking]]", "[[Trips]]", "[[Mobile Architecture]]", "[[ADR-011 Bac
 
 # Google Maps Navigation and Android Bubble Implementation Plan
 
+## Deterministic redirect regression check - 2026-10-27
+
+A broad internal Cargo verification run exposed a false failure in the existing bubble-return test. It searched the entire serialized destination for the incoming hint 999, so a legitimate clock-based ubbleReturn refresh marker containing those digits failed. The harness now fixes the clock at 999 and checks the complete destination shape: the guarded current Map receives exactly its refresh marker and no trip-selection field. The old assertion failed with that fixed clock; the corrected test passed all 16 cleanup/redirect cases. Product behavior is unchanged.
+
+
 ## Sequential integration update - 2026-10-16
 
 The user subsequently authorized local merges into main. Mechanic integration, Google Maps handoff and Android trip-bubble source are integrated into local main in separate merge commits. Map conflict reconciliation preserves both hidden-map pausing and bubble-return assignment refresh. The combined offline Android Hermes export passed (1,475 modules, 88 assets, 5.74 MB); strict changed-file lint, encoding and conflict checks passed. This supersedes earlier statements that these branches remain separate. Source integration does not clear native compilation, physical acceptance, release decisions or cloud-upload consent. See [[Sequential Branch Merges 2026-10-16]] for final outcomes and fresh checks.

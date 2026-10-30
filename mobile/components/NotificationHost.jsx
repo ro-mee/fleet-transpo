@@ -10,9 +10,8 @@
  * Visual language: the incumbent "Stitch FleetOps Tactical" system — Plus
  * Jakarta Sans + IBM Plex Mono, MD3 tone containers, double-bezel shell/core.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  AccessibilityInfo,
   Animated,
   Pressable,
   StyleSheet,
@@ -22,8 +21,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useReducedMotion } from "../lib/use-reduced-motion";
 import { useTheme } from "../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../lib/theme";
+import { TOUCH_TARGET } from "../lib/theme";
 import { moderateScale } from "../lib/scaling";
 import { subscribeNotificationHost, notify } from "../lib/notifications/notify";
 import { subscribePushResponses } from "../lib/notifications/push";
@@ -73,6 +73,11 @@ function HeadsUpBanner({ banner, colors, type, reduceMotion, onDismiss }) {
   const visual = toneVisual(colors)[banner.tone] || toneVisual(colors).info;
 
   useEffect(() => {
+    if (reduceMotion) {
+      y.stopAnimation(); opacity.stopAnimation();
+      y.setValue(0); opacity.setValue(1);
+      return;
+    }
     Animated.parallel([
       Animated.spring(y, {
         toValue: 0,
@@ -94,6 +99,11 @@ function HeadsUpBanner({ banner, colors, type, reduceMotion, onDismiss }) {
 
   useEffect(() => {
     if (!autoMs) return undefined;
+    if (reduceMotion) {
+      progress.setValue(0);
+      const timer = setTimeout(onDismiss, autoMs);
+      return () => clearTimeout(timer);
+    }
     Animated.timing(progress, {
       toValue: 0,
       duration: autoMs,
@@ -102,10 +112,11 @@ function HeadsUpBanner({ banner, colors, type, reduceMotion, onDismiss }) {
       if (finished) onDismiss();
     });
     return () => progress.stopAnimation();
-  }, [progress, autoMs, onDismiss]);
+  }, [progress, autoMs, onDismiss, reduceMotion]);
 
   const exit = () => {
     progress.stopAnimation();
+    if (reduceMotion) { onDismiss(); return; }
     Animated.parallel([
       Animated.timing(y, {
         toValue: -130,
@@ -132,7 +143,6 @@ function HeadsUpBanner({ banner, colors, type, reduceMotion, onDismiss }) {
         },
       ]}
     >
-      <View style={styles.bannerGleam} />
       <View style={[styles.bannerCore, { backgroundColor: visual.container }]}>
         {/* Signal icon chip */}
         <View style={[styles.bannerChip, { backgroundColor: visual.color + "22" }]}>
@@ -196,6 +206,11 @@ function ToastItem({ toast, colors, type, reduceMotion, onDismiss }) {
   const visual = toneVisual(colors)[toast.tone] || toneVisual(colors).info;
 
   useEffect(() => {
+    if (reduceMotion) {
+      y.stopAnimation(); opacity.stopAnimation();
+      y.setValue(0); opacity.setValue(1);
+      return;
+    }
     Animated.parallel([
       Animated.spring(y, {
         toValue: 0,
@@ -219,6 +234,7 @@ function ToastItem({ toast, colors, type, reduceMotion, onDismiss }) {
   }, [toast.duration, onDismiss]);
 
   const exit = () => {
+    if (reduceMotion) { onDismiss(); return; }
     Animated.parallel([
       Animated.timing(y, {
         toValue: 24,
@@ -245,7 +261,6 @@ function ToastItem({ toast, colors, type, reduceMotion, onDismiss }) {
         },
       ]}
     >
-      <View style={styles.toastGleam} />
       <View style={styles.toastCore}>
         <Ionicons name={visual.icon} size={18} color={visual.color} />
         <View style={styles.toastTextWrap}>
@@ -278,16 +293,7 @@ export function NotificationHost() {
   const { colors, type } = useTheme();
   const [banners, setBanners] = useState([]);
   const [toasts, setToasts] = useState([]);
-  const [reduceMotion, setReduceMotion] = useState(false);
-
-  useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
-    const sub = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReduceMotion
-    );
-    return () => sub.remove();
-  }, []);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     const unsubscribe = subscribeNotificationHost((event) => {
@@ -378,25 +384,18 @@ const styles = StyleSheet.create({
   },
   // Double-bezel: outer hairline shell
   bannerShell: {
-    borderRadius: moderateScale(22),
+    borderRadius: moderateScale(16),
     borderWidth: 1,
-    padding: moderateScale(2.5),
+    padding: 0,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 18,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.10,
+    shadowRadius: 8,
+    elevation: 4,
     overflow: "hidden",
   },
-  bannerGleam: {
-    position: "absolute",
-    top: 0, left: 0, right: 0,
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    zIndex: 10,
-  },
   bannerCore: {
-    borderRadius: moderateScale(20),
+    borderRadius: moderateScale(16),
     flexDirection: "row",
     alignItems: "center",
     padding: moderateScale(14),
@@ -453,22 +452,15 @@ const styles = StyleSheet.create({
     transformOrigin: "left top",
   },
   toastShell: {
-    borderRadius: moderateScale(18),
+    borderRadius: moderateScale(16),
     borderWidth: 1,
-    padding: moderateScale(2),
+    padding: 0,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
     overflow: "hidden",
-  },
-  toastGleam: {
-    position: "absolute",
-    top: 0, left: 0, right: 0,
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    zIndex: 10,
   },
   toastCore: {
     borderRadius: moderateScale(16),

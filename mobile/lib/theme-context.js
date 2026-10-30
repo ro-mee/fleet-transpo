@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { useColorScheme, LayoutAnimation, UIManager, Platform } from "react-native";
 import { palettes, typeFor, statusSurfaces, elevationFor, m3 } from "./theme";
+import { useReducedMotion } from "./use-reduced-motion";
 import { useSettings } from "./settings-context";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -29,6 +30,7 @@ const ThemeContext = createContext(null);
 export function ThemeProvider({ children }) {
   const { settings, updateSetting } = useSettings();
   const system = useColorScheme();
+  const reducedMotion = useReducedMotion();
   const [forced, setForced] = useState(null);
 
   const preference = forced || settings.colorScheme || "system";
@@ -37,19 +39,19 @@ export function ThemeProvider({ children }) {
     : preference;
 
   const toggleColorScheme = useCallback(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (!reducedMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setForced((prev) => {
       const next = prev === "dark" ? "light" : "dark";
       updateSetting("colorScheme", next);
       return next;
     });
-  }, [updateSetting]);
+  }, [updateSetting, reducedMotion]);
 
   const setColorScheme = useCallback((next) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (!reducedMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setForced(next);
     updateSetting("colorScheme", next);
-  }, [updateSetting]);
+  }, [updateSetting, reducedMotion]);
 
   const value = useMemo(() => {
     let paletteKey = scheme;

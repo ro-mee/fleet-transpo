@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { transform } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { launchExternalNavigation } from './external-navigation';
@@ -37,7 +38,6 @@ describe('external navigation launcher', () => {
 
 describe('explicit-destination navigation consumers', () => {
   const consumers = [
-    ['Vehicle', 'mobile/app/(app)/(tabs)/vehicle.js', 'handleOpenGoogleMaps', '\n  const advanceTrip', {}, [14.6, 121]],
     ['TripMap', 'mobile/components/map.js', 'handleOpenGoogleMaps', '\n  const zoomStep', { destValid: true, destination: { latitude: 14.6, longitude: 121 } }, []],
     ['Incident', 'mobile/app/(app)/incident/navigate.js', 'openGoogleMaps', '\n  const driverName', { bakedDest: { lat: 14.6, lng: 121 } }, []],
   ];
@@ -60,4 +60,15 @@ describe('explicit-destination navigation consumers', () => {
     const openURL = vi.fn().mockRejectedValue(new Error('no handler'));
     await expect(Promise.resolve(handler(path, name, endMarker, context, openURL)(...args))).resolves.toBeUndefined();
   });
+});
+
+it('legacy Vehicle delegates all map and external navigation to the canonical Map', async () => {
+  const source = readFileSync('mobile/app/(app)/(tabs)/vehicle.js', 'utf8');
+  const { code } = await transform(source, { loader: 'jsx', format: 'cjs' });
+  const scope = { exports: {} };
+  runInNewContext(code, { React: { createElement: (component, props) => ({ component, props }) }, module: scope, exports: scope.exports, require: name => {
+    if (name !== 'expo-router') throw new Error(`Legacy map must not mount another navigation/tracking owner: ${name}`);
+    return { Redirect: 'Redirect' };
+  } });
+  expect(scope.exports.default()).toEqual({ component: 'Redirect', props: { href: '/(app)/(tabs)/map' } });
 });

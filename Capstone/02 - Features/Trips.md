@@ -12,11 +12,21 @@ source:
   - mobile/lib/tracking.js
   - src/app/api/mobile/driver/inspections/route.js
   - src/lib/inspections/checklists.js
-last_verified: 2026-10-19
+last_verified: 2026-10-27
 related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 ---
 
 # Feature: Trips
+
+## Canonical mobile trip recovery — 2026-10-29
+
+Cargo reads its exact trip_id instead of relying on the first page of unrelated trips; failed reads remain errors. api.get forwards actor/abort options to the existing request layer. Arrival override is offered only for GEOFENCE_OUTSIDE and rereads trip/profile/session before confirmed-only status writes. Stale/busy/offline/queued/invalid-action paths retain the reason and do not navigate as success. The old vehicle route redirects to canonical Map and fuel_action redirects to Fuel. Failed safety inspections name the blocking outcome instead of promising Start Trip. Map expand is named48dp, sheet movement honors reduced motion and tab clearance shares the adaptive bar height. Existing server trip authority, GPS ownership, odometer and source/receiver checks remain. See [[Mobile UI UX Audit 2026-10-29]] and [[Dual Cargo Signatures Implementation 2026-10-20]].
+
+## Standalone INTERNAL Cargo execution - 2026-10-27
+
+Cargo requests saved from Add Reservation now have an INTERNAL-only execution provider. The assigned driver records the existing item counts, photos and paired handover signatures on the phone. Fleet Manager/admin/super_admin staff inspect the saved record in Cargo Review: explicit pickup acceptance is followed by a separate assignment-bound safe-loading review before departure; receiving is reviewed against its own saved receipt. Recounts and resource changes invalidate the relevant release, and recorded pickup retains custody holds on cancellation/reassignment. Exact retries reuse immutable command responses. External Cargo providers remain unavailable.
+
+Migration170 is applied and its private review records pass the live catalog contract. Eight actual isolated PostgreSQL cases cover the lifecycle and manager authority; actual intake rollback and independent focused review also passed. Local backend3000 and dedicated phone Metro8082 now serve the implementation checkout. Full operating delivery/physical phone acceptance remains pending genuine driver and vehicle readiness. See [[Internal Cargo Execution Implementation 2026-10-27]] and [[Internal Cargo Continuation Checkpoint 2026-10-27]].
 
 ## Current Android trip shortcut - 2026-10-16, Task 5
 

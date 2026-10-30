@@ -8,7 +8,7 @@ import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { ClayCard, ClayTile } from "../../../components/clay";
+import { ClayButton, ClayCard, ClayTile } from "../../../components/clay";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
@@ -27,7 +27,7 @@ export default function VehicleInformation() {
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently (the global offline banner is enough on Profile screens).
   // onError fires only when nothing was ever saved (never-synced).
-  const { profile, loading } = useDriverProfile({
+  const { profile, loading, reload, error } = useDriverProfile({
     onError: () => AppAlert.alert("Error", "Could not load vehicle info."),
   });
 
@@ -46,7 +46,11 @@ export default function VehicleInformation() {
       <ClayScreenHeader title="Assigned Vehicle" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        {vehicle ? (
+        {error ? <View style={{ padding: 16, gap: 8 }}>
+          <Text accessibilityLiveRegion="polite" style={{ color: colors.error }}>{profile ? "Showing saved profile. " : "Profile unavailable. "}{error}</Text>
+          <ClayButton label="Retry profile" variant="tonal" onPress={reload} />
+        </View> : null}
+        {!profile && error ? null : vehicle ? (
           <ClayCard variant="standard" style={{ padding: 0, gap: 0 }}>
             {vehicle.imageUrl ? (
               <Image
@@ -63,7 +67,7 @@ export default function VehicleInformation() {
               <InfoRow label="Plate Number" value={vehicle.plateNumber} colors={colors} />
               <InfoRow label="Model" value={vehicle.model} colors={colors} />
               <InfoRow label="Name" value={vehicle.name} colors={colors} />
-              <InfoRow label="Capacity" value={`${vehicle.seatingCapacity} Seats`} colors={colors} />
+              <InfoRow label="Capacity" value={vehicle.seatingCapacity == null ? "Seats not provided" : `${vehicle.seatingCapacity} Seats`} colors={colors} />
               <InfoRow label="Status" value={vehicle.vehicleStatus} colors={colors} />
               <InfoRow
                 label="Assigned Since"

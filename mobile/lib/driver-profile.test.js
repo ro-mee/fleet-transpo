@@ -67,3 +67,12 @@ it('discards a profile response after the account changes', async () => {
   expect(h.render().serverConfirmed).toBe(false);
   expect(h.writes).not.toHaveBeenCalled();
 });
+
+it('exposes first-load and saved-data errors and clears them after retry', async () => {
+  const h = harness(); h.cached.mockResolvedValue(null); h.get.mockRejectedValueOnce(new Error('offline'));
+  await h.render().reload(); expect(h.render().error).toBe('offline'); expect(h.render().profile).toBeNull();
+  await h.render().reload(); expect(h.render().error).toBeNull();
+  h.get.mockRejectedValueOnce(new Error('refresh failed')); await h.render().reload();
+  expect(h.render().error).toBe('refresh failed'); expect(h.render().profile.privateField).toBe('kept');
+  h.switchAccount(); expect(h.render().error).toBeNull();
+});

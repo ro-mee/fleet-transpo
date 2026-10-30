@@ -1,8 +1,8 @@
 /**
- * AppAlert — Premium custom alert modal
+ * AppAlert — Shared accessible native alert modal
  *
  * Drop-in replacement for React Native's Alert.alert()
- * Built with Vanguard Double-Bezel Architecture & Impeccable Design Standards.
+ * Preserves the imperative alert and dismissal contracts.
  *
  * Usage:
  *   // Imperative (like Alert.alert):
@@ -15,11 +15,13 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Animated, Pressable, Modal,
-  Platform
+  Platform, ScrollView, useWindowDimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../lib/theme-context';
 import { fonts } from '../lib/theme';
+import { useReducedMotion } from '../lib/use-reduced-motion';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ─── Singleton event emitter ───────────────────────────────────────────────
 let _showAlert = null;
@@ -78,17 +80,17 @@ function notifyDismissed(alert) {
 
 // ─── Host component — mount once in your root layout ──────────────────────
 export function AppAlertHost() {
-  // The theme context exposes `scheme` (not isDark) — derive it so the icon
-  // chip picks a real surface token in dark mode instead of forced white.
-  const { colors, scheme } = useTheme();
-  const isDark = scheme === "dark";
+  const { colors, type } = useTheme();
+  const reducedMotion = useReducedMotion();
+  const { width, height, fontScale } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
   const [config, setConfig]   = useState(null);
   const activeAlertRef = useRef(null);
 
-  // Animated values — GPU-only spring physics
+  // Stable animated values preserve replacement and dismissal behavior.
   const [backdropOpacity] = useState(() => new Animated.Value(0));
-  const [cardScale] = useState(() => new Animated.Value(0.9));
+  const [cardScale] = useState(() => new Animated.Value(0.98));
   const [cardOpacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
@@ -100,8 +102,17 @@ export function AppAlertHost() {
       if (activeAlertRef.current !== alert) return;
       setConfig(cfg);
       setVisible(true);
+      backdropOpacity.stopAnimation();
+      cardScale.stopAnimation();
+      cardOpacity.stopAnimation();
+      if (reducedMotion) {
+        backdropOpacity.setValue(1);
+        cardScale.setValue(1);
+        cardOpacity.setValue(1);
+        return;
+      }
       backdropOpacity.setValue(0);
-      cardScale.setValue(0.9);
+      cardScale.setValue(0.98);
       cardOpacity.setValue(0);
 
       Animated.parallel([
@@ -110,10 +121,9 @@ export function AppAlertHost() {
           duration: 240,
           useNativeDriver: true,
         }),
-        Animated.spring(cardScale, {
+        Animated.timing(cardScale, {
           toValue: 1,
-          friction: 7,
-          tension: 75,
+          duration: 180,
           useNativeDriver: true,
         }),
         Animated.timing(cardOpacity, {
@@ -124,23 +134,24 @@ export function AppAlertHost() {
       ]).start();
     };
     return () => { _showAlert = null; };
-  }, [backdropOpacity, cardScale, cardOpacity]);
+  }, [backdropOpacity, cardScale, cardOpacity, reducedMotion]);
 
   const dismiss = (onPress) => {
     const alert = activeAlertRef.current;
     if (!alert || alert.config !== config || alert.dismissing || alert.dismissed) return;
     alert.dismissing = true;
-    Animated.parallel([
-      Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
-      Animated.timing(cardScale, { toValue: 0.94, duration: 180, useNativeDriver: true }),
-      Animated.timing(cardOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
-    ]).start(() => {
+    const finish = () => {
       if (activeAlertRef.current !== alert || alert.dismissed) return;
       activeAlertRef.current = null;
       setVisible(false);
       try { if (onPress) onPress(); }
       finally { notifyDismissed(alert); }
-    });
+    };
+    if (reducedMotion) { finish(); return; }
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.timing(cardOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
+    ]).start(finish);
   };
 
   if (!config) return null;
@@ -148,14 +159,14 @@ export function AppAlertHost() {
   const buttons = config.buttons?.length
     ? config.buttons
     : [{ text: 'OK' }];
-  const stackedButtons = config.options?.buttonLayout === 'stacked';
+  const stackedButtons = config.options?.buttonLayout === 'stacked' || buttons.length > 2 || width < 360 || fontScale > 1.2;
 
   const icon = deriveIcon(config.title, config.options);
   // Icon chip colors derived from the live theme tone — one hex + alpha
   // triple replaces the old foreign literal palette, so dark alerts carry
   // the palette's own muted hues.
   const toneColor = colors[icon.tone] || colors.info;
-  const iconColor = { color: toneColor, bg: toneColor + '1F', border: toneColor + '47', outerGlow: toneColor + '14' };
+  const iconColor = { color: toneColor, bg: toneColor + '1F' };
 
   return (
     <Modal
@@ -168,11 +179,14 @@ export function AppAlertHost() {
       {/* Backdrop with atmospheric darkness */}
       <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
 
-      <View style={styles.centred}>
-        {/* ── Outer Shell (Double-Bezel Doppelrand) ───────────────────────────── */}
+      <View style={[styles.centred, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
+        {/* Bounded alert surface */}
         <Animated.View
+          accessibilityViewIsModal
+          onAccessibilityEscape={() => dismiss(null)}
           style={[
             styles.outerShell,
+            { maxHeight: Math.max(48, height - insets.top - insets.bottom - 32) },
             {
               borderColor: colors.outlineVariant + '45',
               backgroundColor: colors.surfaceContainerLowest,
@@ -181,35 +195,26 @@ export function AppAlertHost() {
             },
           ]}
         >
-          {/* Specular hairline top gleam — diffused in dark so it is a
-              whisper, not a bright strip on the near-black shell */}
-          <View style={[styles.insetHighlight, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]} />
-
           {/* ── Inner Core ────────────────────────────────────────── */}
-          <View style={[styles.inner, { backgroundColor: colors.surfaceContainerLow }]}>
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.inner, { backgroundColor: colors.surfaceContainerLow }]} bounces={false}>
 
-            {/* Glowing Icon Double-Bezel Badge */}
-            <View style={[styles.iconOuterAura, { backgroundColor: iconColor.outerGlow }]}>
-              <View style={[styles.iconShell, { borderColor: iconColor.border, backgroundColor: isDark ? colors.surfaceContainerLowest : '#FFFFFF' }]}>
-                <View style={[styles.iconCore, { backgroundColor: iconColor.bg }]}>
-                  {icon.render(iconColor.color)}
-                </View>
-              </View>
+            <View style={[styles.iconShell, { backgroundColor: iconColor.bg }]}>
+              {icon.render(iconColor.color)}
             </View>
 
             {/* Title */}
-            <Text style={[styles.title, { color: colors.onSurface }]}>
+            <Text accessibilityRole="header" style={[styles.title, type?.titleLg, { color: colors.onSurface }]}>
               {config.title}
             </Text>
 
             {/* Message Body */}
             {!!config.message && (
-              <Text style={[styles.message, { color: colors.onSurfaceVariant }]}>
+              <Text style={[styles.message, type?.bodyMd, { color: colors.onSurfaceVariant }]}>
                 {config.message}
               </Text>
             )}
 
-            {/* ── Button Bar (Floating Tactile Island Action Affordances) ─────── */}
+            {/* Recovery actions grow with their labels. */}
             <View style={[styles.btnGroup, stackedButtons ? styles.btnGroupStacked : buttons.length === 1 ? styles.btnGroupSingle : styles.btnGroupMultiple]}>
               {buttons.map((btn, i) => {
                 const isDanger  = btn.style === 'destructive' || btn.destructive;
@@ -237,7 +242,7 @@ export function AppAlertHost() {
                         backgroundColor: bgBtn,
                         borderColor: isCancel ? colors.outlineVariant + '60' : 'transparent',
                         borderWidth: isCancel ? 1 : 0,
-                        transform: [{ scale: pressed ? 0.96 : 1 }],
+                        transform: [{ scale: !reducedMotion && pressed ? 0.98 : 1 }],
                         opacity: pressed ? 0.9 : 1,
                         flex: !stackedButtons && buttons.length > 1 ? 1 : undefined,
                         width: stackedButtons || buttons.length === 1 ? '100%' : undefined,
@@ -253,8 +258,9 @@ export function AppAlertHost() {
                         styles.btnText,
                         { color: textBtnColor },
                         isPrimary && styles.btnTextPrimary,
+                        type?.labelLg,
                       ]}
-                      numberOfLines={stackedButtons ? undefined : 1}
+
                     >
                       {btn.text}
                     </Text>
@@ -262,7 +268,7 @@ export function AppAlertHost() {
                 );
               })}
             </View>
-          </View>
+          </ScrollView>
         </Animated.View>
       </View>
     </Modal>
@@ -290,70 +296,36 @@ const styles = StyleSheet.create({
   outerShell: {
     width: '100%',
     maxWidth: 350,
-    borderRadius: 28,
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 4,
+    padding: 0,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 16 },
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.18,
-        shadowRadius: 32,
+        shadowRadius: 12,
       },
       android: {
-        elevation: 12,
+        elevation: 6,
       },
     }),
     overflow: 'hidden',
   },
-  insetHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1.5,
-    backgroundColor: 'rgba(255, 255, 255, 0.35)',
-    zIndex: 10,
-  },
+  scroll: { flexShrink: 1 },
   inner: {
-    borderRadius: 24,
+    borderRadius: 16,
     overflow: 'hidden',
     alignItems: 'center',
     paddingTop: 32,
     paddingHorizontal: 22,
     paddingBottom: 22,
   },
-  iconOuterAura: {
-    padding: 6,
-    borderRadius: 40,
-    marginBottom: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   iconShell: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 1.5,
-    padding: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  iconCore: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    marginBottom: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -372,7 +344,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 26,
     maxWidth: 290,
-    opacity: 0.9,
   },
   btnGroup: {
     width: '100%',
@@ -391,16 +362,17 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
   },
   actionBtn: {
-    height: 50,
-    borderRadius: 25,
+    minHeight: 50,
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 0,
   },
   btnText: {
     fontFamily: fonts.bodySemiBold,

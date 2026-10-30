@@ -162,42 +162,53 @@ TaskManager.defineTask(TASK_NAME, event => {
   return write;
 });
 
-async function ensureBackgroundTracking(requestPermission) {
+async function ensureBackgroundTracking(requestPermission, isCurrent = () => true) {
   if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
+  const stale = { ok: false, reason: "stale-trip" };
   try {
+    if (!isCurrent()) return stale;
     const currentForeground = await Location.getForegroundPermissionsAsync();
+    if (!isCurrent()) return stale;
     const foreground = currentForeground.status === "granted" || !requestPermission
       ? currentForeground
       : await Location.requestForegroundPermissionsAsync();
+    if (!isCurrent()) return stale;
     if (foreground.status !== "granted") return { ok: false, reason: "permission-denied" };
     const current = await Location.getBackgroundPermissionsAsync();
+    if (!isCurrent()) return stale;
     const permission = current.status === "granted" || !requestPermission
       ? current
       : await Location.requestBackgroundPermissionsAsync();
+    if (!isCurrent()) return stale;
     if (permission.status !== "granted") return { ok: false, reason: "permission-denied" };
-    if (!(await Location.hasStartedLocationUpdatesAsync(TASK_NAME))) {
+    const started = await Location.hasStartedLocationUpdatesAsync(TASK_NAME);
+    if (!isCurrent()) return stale;
+    if (!started) {
       await Location.startLocationUpdatesAsync(TASK_NAME, BACKGROUND_OPTIONS);
+      if (!isCurrent()) return stale;
+      if (!(await Location.hasStartedLocationUpdatesAsync(TASK_NAME))) return { ok: false, reason: "start-failed" };
     }
-    return { ok: true };
+    return isCurrent() ? { ok: true } : stale;
   } catch {
     return { ok: false, reason: "start-failed" };
   }
 }
 
 /** Prepare the trip context before checking or starting the native task. */
-export async function prepareBackgroundTracking({ tripId, leg, requestPermission = false }) {
+export async function prepareBackgroundTracking({ tripId, leg, requestPermission = false, isCurrent = () => true }) {
   if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
   try {
+    if (!isCurrent()) return { ok: false, reason: "stale-trip" };
     await updateLegContext({ tripId, leg });
-    return ensureBackgroundTracking(requestPermission);
+    return ensureBackgroundTracking(requestPermission, isCurrent);
   } catch {
     return { ok: false, reason: "start-failed" };
   }
 }
 
 /** Compatibility for AppState callers that already saved their trip context. */
-export async function startBackgroundTracking() {
-  return ensureBackgroundTracking(true);
+export async function startBackgroundTracking(requestPermission = true, isCurrent) {
+  return ensureBackgroundTracking(requestPermission, isCurrent);
 }
 
 /**

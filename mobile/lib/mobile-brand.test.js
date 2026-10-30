@@ -7,6 +7,8 @@ const filenames = ['light', 'dark', 'high-contrast-light', 'high-contrast-dark']
 const assets = Object.fromEntries(filenames.flatMap(name => [
   [`../assets/brand/mark-${name}.png`, `mark-${name}`],
 ]));
+assets['../assets/brand/wordmark-light.png'] = 'wordmark-light';
+assets['../assets/brand/wordmark-dark.png'] = 'wordmark-dark';
 const theme = { scheme: 'light', colors: { background: '#F5F2EC', onSurfaceVariant: '#456054' }, type: { caption: {} } };
 const settings = { highContrast: false };
 const deps = {
@@ -39,7 +41,11 @@ it('keeps the readable FleetOps name and a single accessible brand label', async
   h.render({ showText: false });
   expect(h.find(n => n.component === h.exports.FleetOpsWordmark)).toBeUndefined();
   const word = await nativeRender(new URL('../components/logo.js', import.meta.url), { name: 'FleetOpsWordmark', deps });
-  expect(word.text()).toContain('Fleet'); expect(word.text()).toContain('Ops');
+  expect(word.find(n => n.component === 'Image').props.source).toBe('wordmark-light');
+  word.render({ variant: 'dark' });
+  expect(word.find(n => n.component === 'Image').props.source).toBe('wordmark-dark');
+  word.render({ variant: 'highContrastLight' });
+  expect(word.text()).toContain('FleetOps');
   expect(word.find(n => n.component === 'Text').props.allowFontScaling).toBe(false);
 });
 

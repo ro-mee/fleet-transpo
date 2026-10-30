@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Animated, Platform } from 'react-native';
+import { useReducedMotion } from '../lib/use-reduced-motion';
 import { Ionicons } from '@expo/vector-icons';
 
 /**
@@ -17,12 +18,13 @@ function RadarPulseInner({
   active = true,
   style,
 }) {
+  const reducedMotion = useReducedMotion();
   const [anims] = useState(() =>
     Array.from({ length: pulseCount }, () => new Animated.Value(0))
   );
 
   useEffect(() => {
-    if (!active) {
+    if (!active || reducedMotion) {
       anims.forEach((anim) => anim.setValue(0));
       return;
     }
@@ -50,7 +52,7 @@ function RadarPulseInner({
       composite.stop();
       anims.forEach((anim) => anim.stopAnimation());
     };
-  }, [active, duration, pulseCount, anims]);
+  }, [active, duration, pulseCount, anims, reducedMotion]);
 
   const effectiveIconSize = iconSize || Math.round(size * 0.42);
 
@@ -62,12 +64,10 @@ function RadarPulseInner({
         style,
       ]}
       pointerEvents="none"
-      accessible={true}
-      accessibilityRole="image"
-      accessibilityLabel="Radar scanning animation"
+      accessible={false}
     >
       {/* Concentric radiating pulse discs (web incident pulse physics) */}
-      {anims.map((anim, i) => {
+      {!reducedMotion && anims.map((anim, i) => {
         const scale = anim.interpolate({
           inputRange: [0, 0.6, 1],
           outputRange: [0.65, 2.4, 2.4],

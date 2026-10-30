@@ -12,6 +12,12 @@ last_verified: 2026-08-23
 
 # Feature: Driver Consent
 
+## Mobile policy and profile recovery — 2026-10-29
+
+Consent now has an explicit Read privacy policy action showing the existing pure policy text, now shared through shared/privacy-policy.js with stable src/lib/consent/policies.js re-exports inside the scrollable onboarding page. Reading does not toggle agreement or record consent. Agreement no longer styles inert text as links; summary cards no longer imply navigation. Acceptance requires a confirmed online response before saving the local version or entering permissions; queued/error results stay on the page. Policy text/version and server authority are unchanged.
+
+Native inputs/accessories have accessible names and48dp targets. Valid license documents retain front/back replacement controls for early renewal; viewer Close is named. Phone Cancel restores the saved number and failed/queued saves retain the draft. Profile failures expose retry and saved facts. Permission onboarding/profile/settings offer device Settings for permanent denial and refresh on foreground return; preferences remain separate from actual OS grants. Focused callbacks and the final suite cover these contracts; physical-device focus, keyboard, native camera/Settings and screen readers remain pending. See [[Mobile UI UX Audit 2026-10-29]].
+
 ## What it does
 
 Governs what a driver can **see** about themselves and what they can **change**, plus recorded consent (migration `017_driver_consents.sql`). 

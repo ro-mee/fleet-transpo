@@ -222,6 +222,9 @@ export default function InspectionChecklist({ items: CHECKLIST, answers: statuse
                         <View style={styles.checkBtnRow}>
                           {/* PASS button */}
                           <Pressable
+                            accessibilityRole="radio"
+                            accessibilityLabel={`${item.label}: ${item.passLabel || "Pass"}`}
+                            accessibilityState={{ checked: isPass }}
                             onPress={() => setStatus(item.id, "PASS")}
                             style={({ pressed }) => [
                               styles.checkBtn,
@@ -254,6 +257,9 @@ export default function InspectionChecklist({ items: CHECKLIST, answers: statuse
 
                           {/* FAIL button */}
                           <Pressable
+                            accessibilityRole="radio"
+                            accessibilityLabel={`${item.label}: ${item.failLabel || "Fail"}`}
+                            accessibilityState={{ checked: isFail }}
                             onPress={() => setStatus(item.id, "FAIL")}
                             style={({ pressed }) => [
                               styles.checkBtn,
@@ -289,6 +295,9 @@ export default function InspectionChecklist({ items: CHECKLIST, answers: statuse
                       <View style={styles.checkBtnRow}>
                         {/* PASS button */}
                         <Pressable
+                          accessibilityRole="radio"
+                          accessibilityLabel={`${item.label}: ${item.passLabel || "Pass"}`}
+                          accessibilityState={{ checked: isPass }}
                           onPress={() => setStatus(item.id, "PASS")}
                           style={({ pressed }) => [
                             styles.checkBtn,
@@ -321,6 +330,9 @@ export default function InspectionChecklist({ items: CHECKLIST, answers: statuse
 
                         {/* FAIL button */}
                         <Pressable
+                          accessibilityRole="radio"
+                          accessibilityLabel={`${item.label}: ${item.failLabel || "Fail"}`}
+                          accessibilityState={{ checked: isFail }}
                           onPress={() => setStatus(item.id, "FAIL")}
                           style={({ pressed }) => [
                             styles.checkBtn,
@@ -356,8 +368,11 @@ export default function InspectionChecklist({ items: CHECKLIST, answers: statuse
                     {/* Remarks input when failed */}
                     {isFail && (
                       <View style={{ gap: 6 }}>
+                        <Text style={[type.labelMd, { color: colors.onSurface }]}>Issue remarks (required)</Text>
                         <CoachMarkTarget id="inspection.remarks" targetId="inspection.remarks" radius={12} scrollRef={scrollRef}>
                           <TextInput
+                            accessibilityLabel={`${item.label}: issue remarks, required`}
+                            accessibilityHint={item.remarksPrompt || "Describe the issue before saving."}
                             placeholder={item.remarksPrompt || "Describe issue..."}
                             placeholderTextColor={colors.outline}
                             value={remarks[item.id] || ""}

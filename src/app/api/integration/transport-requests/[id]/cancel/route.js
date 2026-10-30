@@ -21,7 +21,7 @@ export async function PUT(req, { params }) {
 
     const before = await loadRequest(id);
     if (!before) return err("Transportation request not found", 404);
-    if (before.load_type === 'Cargo') {
+    if (before.load_type === 'Cargo' && before.source_system !== 'INTERNAL') {
       throw new AuthError('Cargo request cancellation requires approved source coordination.', 503, 'CARGO_CONFIGURATION_REQUIRED');
     }
 
@@ -34,10 +34,19 @@ export async function PUT(req, { params }) {
     const resources = [];
     const result = await withTransaction(async tx => {
       await prepareCargoLifecycle(tx);
-      const stored = (await tx.query('SELECT request_id, load_type FROM transportation_requests WHERE request_id=$1 AND deleted_at IS NULL FOR UPDATE', [id])).rows[0];
+      const stored = (await tx.query('SELECT request_id, load_type, source_system FROM transportation_requests WHERE request_id=$1 AND deleted_at IS NULL FOR UPDATE', [id])).rows[0];
       if (!stored) throw new AuthError('Transportation request not found', 404);
-      if (stored.load_type === 'Cargo') throw new AuthError('Cargo request cancellation requires approved source coordination.', 503, 'CARGO_CONFIGURATION_REQUIRED');
-      if (stored.load_type != null && stored.load_type !== 'Passenger') throw new AuthError('Request load authority could not be resolved.', 409, 'CARGO_LINKAGE_CONFLICT');
+      if (stored.load_type === 'Cargo' && stored.source_system !== 'INTERNAL') throw new AuthError('Cargo request cancellation requires approved source coordination.', 503, 'CARGO_CONFIGURATION_REQUIRED');
+      if (stored.load_type != null && !['Passenger', 'Cargo'].includes(stored.load_type)) throw new AuthError('Request load authority could not be resolved.', 409, 'CARGO_LINKAGE_CONFLICT');
+      if (stored.load_type === 'Cargo') {
+        // Include historical dispatches: standing down a run never proves its cargo was returned.
+        const pickup = (await tx.query(`SELECT receipt.receipt_id FROM cargo_receipts receipt
+          JOIN cargo_trip_executions execution ON execution.execution_id=receipt.execution_id
+          JOIN trips trip ON trip.trip_id=execution.trip_id
+          JOIN dispatchschedules dispatch ON dispatch.dispatch_id=trip.dispatch_id
+          WHERE dispatch.request_id=$1 AND receipt.stage='PICKUP' LIMIT 1`, [id])).rows[0];
+        if (pickup) throw new AuthError('Recorded cargo pickup requires custody review before cancellation.', 409, 'CARGO_CUSTODY_REVIEW_REQUIRED');
+      }
       const { rows: dispatches } = await tx.query(
         `SELECT dispatch_id FROM dispatchschedules
           WHERE deleted_at IS NULL

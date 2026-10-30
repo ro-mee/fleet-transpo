@@ -37,7 +37,8 @@ export async function assertCargoDriver(tripId, actor, tx) {
 }
 
 export async function loadExecutionForUpdate(tripId, tx) {
-  const trip = await assertCargoDriver(tripId, tx?.cargoActor, tx);
+  const trip = tx?.cargoInternalApproved === true ? (await tx.query('SELECT trip_id,dispatch_id FROM trips WHERE trip_id=$1 AND deleted_at IS NULL FOR UPDATE', [tripId])).rows[0] : await assertCargoDriver(tripId, tx?.cargoActor, tx);
+  if (!trip) fail('CARGO_TRIP_NOT_FOUND', 'Cargo trip was not found.', 404);
   const existing = (await tx.query('SELECT * FROM cargo_trip_executions WHERE trip_id=$1 FOR UPDATE', [tripId])).rows[0];
   if (existing) return existing;
   // Both branches use persisted dispatch linkage. The DB trigger independently checks it.
@@ -154,6 +155,7 @@ export async function appendManualCargoDecision(input, session, authority, tx) {
 
 export async function appendCargoFeedback({ execution, eventType, receipt = null, decision = null }, tx) {
   assertCargoStorageConfiguration(tx?.cargoConfig);
+  if (execution?.manifest?.source_ref?.system === 'INTERNAL') return null;
   const payload = parse(cargoFeedbackSchema, { execution_id: execution?.execution_id, execution_version: execution?.version,
     source_ref: execution?.manifest?.source_ref, manifest_ref: execution?.manifest?.manifest_ref, event_type: eventType,
     receipt: receipt ? { receipt_id: receipt.receipt_id, payload: cargoFeedbackReceiptPayload(receipt.payload) } : null,

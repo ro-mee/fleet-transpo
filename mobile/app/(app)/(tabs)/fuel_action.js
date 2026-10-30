@@ -1,3 +1,5 @@
-export default function FuelActionDummy() {
-  return null;
+import { Redirect } from "expo-router";
+
+export default function LegacyRoute() {
+  return <Redirect href="/fuel-report" />;
 }

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image, Modal, Linking } from 'react-native';
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -38,18 +38,22 @@ function formatExpiry(expiry) {
 }
 
 function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
+  const { type } = useTheme();
   return (
     <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
-      <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
-      <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
+      <Text style={[styles.infoLabel, type.supporting, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      <Text style={[styles.infoValue, type.supporting, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
   );
 }
 
-function ScanSourceButtons({ side, busy, onPick }) {
+function ScanSourceButtons({ side, busy, onPick, replacing }) {
+  const { colors, type } = useTheme();
   const disabled = busy !== null;
   const isUploading = busy === side;
   return (
+    <View style={{ gap: 8 }}>
+      {replacing ? <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>Replace {side} photo for renewal or correction</Text> : null}
     <View style={styles.sourceRow}>
       <ClayButton
         label={isUploading ? "Working…" : "Take Photo"}
@@ -71,13 +75,14 @@ function ScanSourceButtons({ side, busy, onPick }) {
         style={{ flex: 1 }}
       />
     </View>
+    </View>
   );
 }
 
 export default function LicenseInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, type } = useTheme();
   const isDark = scheme === "dark";
   const { user } = useAuth();
   const connectivity = useConnectivity();
@@ -88,7 +93,7 @@ export default function LicenseInformation() {
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently; the alert only fires when nothing was ever saved.
-  const { profile, loading, reload } = useDriverProfile({
+  const { profile, loading, reload, error } = useDriverProfile({
     onError: () => AppAlert.alert("Error", "Could not load license info."),
   });
   const profileLicenseRef = useRef(null);
@@ -213,7 +218,8 @@ export default function LicenseInformation() {
           "Permission Required",
           source === "camera"
             ? "Camera permission is required to photograph your license."
-            : "Photo library permission is required to select your license scan."
+            : "Photo library permission is required to select your license scan.",
+          [{ text: "Cancel", style: "cancel" }, { text: "Open Settings", onPress: () => Linking.openSettings() }]
         );
         return;
       }
@@ -295,11 +301,15 @@ export default function LicenseInformation() {
       <ClayScreenHeader title="License & Compliance" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
+        {error ? <View style={{ padding: 16, gap: 8 }}>
+          <Text accessibilityLiveRegion="polite" style={{ color: colors.error }}>{profile ? "Showing saved profile. " : "Profile unavailable. "}{error}</Text>
+          <ClayButton label="Retry profile" variant="tonal" onPress={reload} />
+        </View> : null}
         <ClayCard variant="standard" style={styles.sectionCard}>
           <View style={[styles.infoRow, { borderBottomWidth: 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
-            <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>License Number</Text>
+            <Text style={[styles.infoLabel, type.supporting, { color: colors.onSurfaceVariant }]}>License Number</Text>
             <View style={styles.licenseNumberValue}>
-              <Text style={[styles.infoValue, styles.licenseNumberText, { color: colors.onSurface }]} numberOfLines={1}>
+              <Text style={[styles.infoValue, type.supporting, styles.licenseNumberText, { color: colors.onSurface }]} numberOfLines={1}>
                 {revealedLicense ?? maskedLicenseNumber ?? license?.number ?? "—"}
               </Text>
               {(maskedLicenseNumber || license?.number) && (
@@ -341,7 +351,7 @@ export default function LicenseInformation() {
             isDark={isDark}
           />
           <View style={styles.infoRow}>
-            <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Compliance Status</Text>
+            <Text style={[styles.infoLabel, type.supporting, { color: colors.onSurfaceVariant }]}>Compliance Status</Text>
             <ClayBadge label={status.label} tone={status.tone} dot />
           </View>
           <InfoRow label="Years Experience" value={`${license?.yearsExperience || 0} Years`} colors={colors} isLast={true} isDark={isDark} />
@@ -368,9 +378,10 @@ export default function LicenseInformation() {
                 </View>
               </Pressable>
             )}
-            {(!license?.frontScanImageUrl || status.tone !== "success") && (
+            {(
               <ScanSourceButtons
                 side="front"
+                replacing={!!license?.frontScanImageUrl}
                 busy={uploadingSide}
                 onPick={handleUpload}
               />
@@ -395,9 +406,10 @@ export default function LicenseInformation() {
                 </View>
               </Pressable>
             )}
-            {(!license?.backScanImageUrl || status.tone !== "success") && (
+            {(
               <ScanSourceButtons
                 side="back"
+                replacing={!!license?.backScanImageUrl}
                 busy={uploadingSide}
                 onPick={handleUpload}
               />
@@ -411,7 +423,7 @@ export default function LicenseInformation() {
         <View style={styles.viewerContainer}>
           <Pressable style={styles.viewerCloseArea} onPress={() => setViewerImage(null)} />
           <Image source={{ uri: viewerImage }} style={styles.viewerImage} resizeMode="contain" />
-          <Pressable onPress={() => setViewerImage(null)} style={[styles.viewerCloseBtn, { top: insets.top + 20 }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close license photo" onPress={() => setViewerImage(null)} style={[styles.viewerCloseBtn, { top: insets.top + 20 }]}>
             <Ionicons name="close" size={24} color="#FFF" />
           </Pressable>
         </View>
@@ -494,8 +506,8 @@ const styles = StyleSheet.create({
   viewerCloseBtn: {
     position: "absolute",
     right: 20,
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center",

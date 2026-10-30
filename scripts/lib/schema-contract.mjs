@@ -68,6 +68,10 @@ export const CLASSIFICATION = Object.freeze({
  * the table's RLS state is itself notable or still unsettled.
  */
 export const TABLES = Object.freeze({
+  cargo_internal_reviews: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: 'Immutable authenticated INTERNAL Cargo manager reviews, bound to exact receipts, assignment and audited commands.',
+  },
   trip_odometer_captures: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Private trip-bound odometer photos and extracted readings, accessible only through authorized server operations.",

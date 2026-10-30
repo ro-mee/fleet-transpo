@@ -39,7 +39,7 @@ export default function LoggedInDevicesScreen() {
   const [revoking, setRevoking] = useState(null);
 
   const fetchSessions = useCallback(async () => {
-    // setLoading is already true initially; only set it if refreshing later
+    setLoading(true);
     setError(null);
     try {
       const data = await apiFetch("/api/auth/sessions");
@@ -73,11 +73,13 @@ export default function LoggedInDevicesScreen() {
             const sessionKey = `${session.kind}:${session.id}`;
             setRevoking(sessionKey);
             try {
-              await apiFetch("/api/auth/sessions", {
+              const result = await apiFetch("/api/auth/sessions", {
                 method: "DELETE",
+                queueOnFailure: false,
                 body: JSON.stringify({ id: session.id, kind: session.kind })
               });
 
+              if (result?.queued) throw new Error("Session revocation was not confirmed. Connect and try again.");
               if (isCurrent) {
                 // The API already revoked this family; signOut clears local tokens and cache.
                 await signOut();

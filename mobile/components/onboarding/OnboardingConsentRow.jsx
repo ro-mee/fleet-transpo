@@ -9,8 +9,6 @@ export function OnboardingConsentRow({
   compact = false,
   style,
 }) {
-  const { colors } = onboardingTheme;
-
   return (
     <Pressable
       onPress={onToggle}
@@ -44,19 +42,11 @@ export function OnboardingConsentRow({
       {/* Legal Label */}
       <Text style={[styles.label, compact && styles.labelCompact]}>
         I agree to the{" "}
-        <Text style={styles.linkText}>Terms and Conditions</Text>
+        <Text>Terms and Conditions</Text>
         {" "}and{" "}
-        <Text style={styles.linkText}>Privacy Policy</Text>
+        <Text>Privacy Policy</Text>
       </Text>
 
-      {/* Trailing Chevron */}
-      <View style={styles.chevronWrap}>
-        <Ionicons
-          name="chevron-forward"
-          size={16}
-          color={colors.chevron}
-        />
-      </View>
     </Pressable>
   );
 }
@@ -117,14 +107,5 @@ const styles = StyleSheet.create({
   labelCompact: {
     fontSize: 12,
     lineHeight: 15.5,
-  },
-  linkText: {
-    fontFamily: fonts.displaySemiBold,
-    color: onboardingTheme.colors.mint,
-  },
-  chevronWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingLeft: 2,
   },
 });

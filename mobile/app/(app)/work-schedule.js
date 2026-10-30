@@ -47,7 +47,7 @@ function formatDate(value) {
 export default function WorkScheduleScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, type } = useTheme();
   const isDark = scheme === "dark";
   const [view, setView] = useState("schedule");
   const [schedule, setSchedule] = useState([]);
@@ -163,7 +163,8 @@ export default function WorkScheduleScreen() {
   );
 
   const submitLeave = async () => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+    if (!validDate(startDate) || !validDate(endDate)) {
       AppAlert.alert("Check your dates", "Use YYYY-MM-DD for the start and end date.");
       return;
     }
@@ -173,12 +174,13 @@ export default function WorkScheduleScreen() {
     }
     try {
       setSubmitting(true);
-      await api.post("/api/driver/leave", {
+      const result = await api.post("/api/driver/leave", {
         start_date: startDate,
         end_date: endDate,
         leave_type: leaveType,
         reason: reason.trim(),
-      });
+      }, { queueOnFailure: false });
+      if (result?.queued) throw new Error("The server has not confirmed this request. Your draft is kept; connect and try again.");
       setStartDate("");
       setEndDate("");
       setReason("");
@@ -197,7 +199,7 @@ export default function WorkScheduleScreen() {
   return (
     <KeyboardAvoidingView style={[styles.root, { backgroundColor: colors.background }]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <View style={[styles.header, { paddingTop: insets.top + moderateScale(8), backgroundColor: colors.surface }]}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.back}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={8} style={styles.back}>
           <Ionicons name="arrow-back" size={23} color={colors.onSurface} />
         </Pressable>
         <View style={styles.headerText}>
@@ -212,6 +214,9 @@ export default function WorkScheduleScreen() {
           return (
             <Pressable
               key={item.id}
+              accessibilityRole="tab"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected: active }}
               onPress={() => setView(item.id)}
               style={[
                 styles.segment,
@@ -305,7 +310,7 @@ export default function WorkScheduleScreen() {
                   );
                 })}
                 {!schedule.length ? (
-                  <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>
+                  <Text style={[styles.noFile, type.supporting, { color: colors.onSurfaceVariant }]}>
                     {scheduleSyncedAt != null
                       ? "No schedule assigned yet."
                       : "No offline data available. Connect once to save your schedule for offline viewing."}
@@ -333,7 +338,7 @@ export default function WorkScheduleScreen() {
                 <Text style={[styles.panelTitle, { color: colors.onSurface }]}>Request time off</Text>
                 <ClayTile icon="send-outline" size={32} variant="surface" />
               </View>
-              <Text style={[styles.helper, { color: colors.onSurfaceVariant }]}>
+              <Text style={[styles.helper, type.supporting, { color: colors.onSurfaceVariant }]}>
                 Requests stay pending until your fleet manager approves them.
               </Text>
               <View style={styles.dateRow}>
@@ -363,6 +368,9 @@ export default function WorkScheduleScreen() {
                   return (
                     <Pressable
                       key={item}
+                      accessibilityRole="radio"
+                      accessibilityLabel={`${item} leave`}
+                      accessibilityState={{ selected: active }}
                       onPress={() => setLeaveType(item)}
                       style={[
                         styles.leaveType,
@@ -417,7 +425,7 @@ export default function WorkScheduleScreen() {
                 <ClayTile icon="list-outline" size={32} variant="surface" />
               </View>
               {!leaves.length ? (
-                <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>
+                <Text style={[styles.noFile, type.supporting, { color: colors.onSurfaceVariant }]}>
                   {offline && leavesSyncedAt == null
                     ? "No offline data yet. Connect once to save your requests."
                     : "Leave requests you submit will appear here."}
@@ -432,10 +440,10 @@ export default function WorkScheduleScreen() {
                     ]}
                   >
                     <View style={styles.leaveInfo}>
-                      <Text style={[styles.leaveDate, { color: colors.onSurface }]}>
+                      <Text style={[styles.leaveDate, type.bodyMd, { color: colors.onSurface }]}>
                         {formatDate(leave.start_date)} - {formatDate(leave.end_date)}
                       </Text>
-                      <Text style={[styles.leaveMeta, { color: colors.onSurfaceVariant }]}>
+                      <Text style={[styles.leaveMeta, type.supporting, { color: colors.onSurfaceVariant }]}>
                         {leave.leave_type || "Leave"}{leave.reason ? ` · ${leave.reason}` : ""}
                       </Text>
                     </View>

@@ -12,8 +12,8 @@ function responseData(response) {
   return response?.data ?? response;
 }
 
-export async function getCargoExecution(tripId, { historyLimit = 20, historyOffset = 0 } = {}) {
-  return responseData(await apiFetch(`${tripPath(tripId)}${buildQuery({ history_limit: historyLimit, history_offset: historyOffset })}`));
+export async function getCargoExecution(tripId, { historyLimit = 20, historyOffset = 0, signal } = {}) {
+  return responseData(await apiFetch(`${tripPath(tripId)}${buildQuery({ history_limit: historyLimit, history_offset: historyOffset })}`, { signal, cache: "no-store" }));
 }
 
 export async function getCargoHandovers(tripId, { signal } = {}) {
@@ -25,11 +25,11 @@ export async function getCargoHandovers(tripId, { signal } = {}) {
   return data.handovers;
 }
 
-export async function getCargoEvidence(tripId, evidenceId) {
+export async function getCargoEvidence(tripId, evidenceId, { signal } = {}) {
   if (!UUID.test(evidenceId || "")) throw new Error("A valid cargo photo reference is required.");
-  const data = responseData(await apiFetch(`${tripPath(tripId)}${buildQuery({ evidence_id: evidenceId })}`));
+  const data = responseData(await apiFetch(`${tripPath(tripId)}${buildQuery({ evidence_id: evidenceId })}`, { signal, cache: "no-store" }));
   const evidence = data?.evidence?.find((item) => item.evidence_id === evidenceId);
-  if (!evidence?.url) throw new Error("The private cargo photo is unavailable.");
+  if (!evidence?.url || evidence.expires_in !== 300) throw new Error("The private cargo photo is unavailable.");
   return evidence;
 }
 

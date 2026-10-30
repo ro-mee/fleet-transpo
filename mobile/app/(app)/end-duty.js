@@ -23,6 +23,7 @@ import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { AppAlert } from '../../components/AppAlert';
+import { Logo } from '../../components/logo';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 
 // Matches the server's POST_SHIFT_FINDINGS_MAX. Enforced on both sides on
@@ -162,7 +163,7 @@ export default function EndDuty() {
         <Pressable onPress={close} hitSlop={8} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close End Duty report">
           <Ionicons name="close" size={24} color={colors.onSurfaceVariant} />
         </Pressable>
-        <Text style={[type.headlineMd, { color: colors.primary }]}>FleetOps</Text>
+        <Logo size={24} subtitle={false} />
         <View style={styles.closeBtn} />
       </View>
 

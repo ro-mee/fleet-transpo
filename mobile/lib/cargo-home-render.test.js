@@ -42,7 +42,7 @@ runInNewContext(code, { module: scope, exports: scope.exports, React, require: n
   if (!dependencies[name]) throw new Error(`Unexpected Home dependency ${name}`);
   return dependencies[name];
 } });
-const { DriverTripCard, DriverWorkspaceCard, DriverHeroCard, HomeQuickActions, AssignmentsHeading } = scope.exports;
+const { DriverTripCard, DriverWorkspaceCard, DriverHeroCard, DriverDutyStatus, HomeQuickActions, AssignmentsHeading } = scope.exports;
 describe("rendered cargo Home card", () => {
   it('unmounts hidden Home route renderers while keeping the trip facts and actions', () => {
     const trip = { trip_id: 702, trip_status: 'Assigned', load_type: 'Passenger', origin: 'Hotel', destination: 'Airport', passenger_count: 2 };
@@ -122,9 +122,9 @@ describe("rendered driver workspace", () => {
   });
 });
 
-it("gives Cargo Home a work-focused hero without guest transport copy", () => {
+it("keeps the Cargo scene and truthful work summary", () => {
   const html = renderToStaticMarkup(React.createElement(DriverHeroCard, { workspaceMode: "cargo", confirmed: true, profileConfirmed: true, vehicle: { plate: "ABC-123" } }));
-  expect(html).toContain("Cargo work. Clear deliveries."); expect(html).not.toContain("Happy guests");
+  expect(html).toContain("Checking duty status"); expect(html).toContain("Assigned vehicle"); expect(html).toContain("Cargo work. Clear deliveries.");
 });
 
 it('renders the reference Cargo duty/standby overview instead of the hotel dashboard header', () => {
@@ -132,9 +132,15 @@ it('renders the reference Cargo duty/standby overview instead of the hotel dashb
   const cargo = renderToStaticMarkup(React.createElement(DriverHeroCard, { ...common, workspaceMode: 'cargo', duty: { loaded: true, checkedIn: true } }));
   expect(cargo).toContain('On Duty · Standby'); expect(cargo).toContain('Waiting for your next assignment.');
   expect(cargo).not.toContain('Happy guests'); expect(cargo).not.toContain('View assignments');
-  const passenger = renderToStaticMarkup(React.createElement(DriverHeroCard, { ...common, workspaceMode: 'passenger' }));
-  expect(passenger).toContain('Smooth rides. Happy guests.'); expect(passenger).toContain('View assignments');
-  expect(passenger).not.toContain('On Duty · Standby');
+  const passenger = renderToStaticMarkup(React.createElement(DriverHeroCard, { ...common, workspaceMode: 'passenger', duty: { loaded: true, checkedIn: true } }));
+  expect(passenger).toContain('View assignments');
+  expect(passenger).toContain('On Duty · Standby');
+});
+
+it('never calls unresolved Passenger duty standby or off duty', () => {
+  const html = renderToStaticMarkup(React.createElement(DriverHeroCard, { workspaceMode: 'passenger', duty: { loaded: false, checkedIn: false } }));
+  expect(html).toContain('Checking duty status');
+  expect(html).not.toContain('Off Duty'); expect(html).not.toContain('On Duty');
 });
 
 it.each([
@@ -247,7 +253,7 @@ function homeHarness({ cards, dutyState, preShiftState, activeMilestone = null, 
     '../../../lib/home-trips': { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT: 3 },
     '../../../lib/driver-workspace': { resolveDriverWorkspace },
     '../../../lib/driver-context': { resolveVehicleContext: () => null },
-    '../../../components/home/DriverHomeCards': cards || { DriverHeroCard, DriverWorkspaceCard, HomeQuickActions, DriverTripCard, AssignmentsHeading },
+    '../../../components/home/DriverHomeCards': cards || { DriverHeroCard, DriverDutyStatus, DriverWorkspaceCard, HomeQuickActions, DriverTripCard, AssignmentsHeading },
     '../../../components/OffDutyIllustration': { default: () => React.createElement('img', { 'data-testid': 'off-duty-illustration' }), __esModule: true },
     '../../../components/coachmarks/CoachMarkProvider': { useCoachMarkActions: () => ({ triggerMilestone: milestone, notifyInteraction: () => {}, setTutorialTransition: () => {} }), useCoachMarkStatus: () => ({ activeMilestone, walkthroughActive: false, tutorialTransitioning: false, pendingTourDestination: null }) },
     '../../../components/coachmarks/CoachMarkTarget': { CoachMarkTarget: native('div') },
@@ -308,7 +314,7 @@ function seedOfflineCache(h, { trips = [cachedCargoTrip], driverType = 'Cargo' }
 
 async function renderOfflineHome(h) {
   h.renderHome(); // mount: the focus effect kicks off load()
-  await vi.waitFor(() => { expect(renderToStaticMarkup(h.renderHome())).toContain('Cargo workspace'); });
+  await vi.waitFor(() => { expect(renderToStaticMarkup(h.renderHome())).toContain('Fresh vegetables'); });
   return renderToStaticMarkup(h.renderHome());
 }
 
@@ -321,7 +327,7 @@ describe('Home offline read-only gate (index.js canManageTrip)', () => {
     for (const screenActive of [true, false]) {
       const h = homeHarness({ screenActive }); seedOfflineCache(h, { trips, driverType: 'Passenger' });
       h.renderHome();
-      await vi.waitFor(() => { expect(renderToStaticMarkup(h.renderHome())).toContain('Passenger workspace'); });
+      await vi.waitFor(() => { expect(renderToStaticMarkup(h.renderHome())).toContain('CURRENT TRIP'); });
       const html = renderToStaticMarkup(h.renderHome());
       expect((html.match(/data-testid="route-preview"/g) || []).length).toBe(screenActive ? 4 : 0);
       expect(html).toContain('NEXT TRIP'); expect(html).toContain('CURRENT TRIP');
@@ -334,12 +340,21 @@ describe('Home offline read-only gate (index.js canManageTrip)', () => {
     expect(html).toContain('Report Incident');
     expect(html).toContain('End Duty');
   });
+  it('keeps the restored Passenger overview first and Incident visible before More', async () => {
+    const h = homeHarness();
+    seedOfflineCache(h, { driverType: 'Passenger', trips: [{ ...cachedCargoTrip, load_type: 'Passenger', operational_use: 'Passenger', guest_name: 'Jane' }] });
+    h.renderHome();
+    await vi.waitFor(() => expect(renderToStaticMarkup(h.renderHome())).toContain('Jane'));
+    const html = renderToStaticMarkup(h.renderHome());
+    expect(html).toContain('Report Incident'); expect(html).toContain('End Duty');
+    expect(html.indexOf('Smooth rides. Happy guests.')).toBeLessThan(html.indexOf('CURRENT TRIP'));
+    expect(html.indexOf('Report Incident')).toBeLessThan(html.indexOf('More'));
+  });
   it('renders the cached workspace visibly but keeps trip actions disabled while offline', async () => {
     const h = homeHarness();
     seedOfflineCache(h);
     const html = await renderOfflineHome(h);
     // The cached driver type still paints the workspace…
-    expect(html).toContain('Cargo workspace');
     expect(html).toContain('Follow your current cargo assignment.');
     expect(html).toContain('Fresh vegetables');
     // …but the current trip's CTA is Trip Details, never the live action.
@@ -351,7 +366,7 @@ describe('Home offline read-only gate (index.js canManageTrip)', () => {
   it('no-ops handleTripAction while offline even when invoked directly', async () => {
     const captured = [];
     const h = homeHarness({ cards: {
-      DriverHeroCard: native('div'), DriverWorkspaceCard: native('div'), HomeQuickActions: native('div'), AssignmentsHeading: native('div'),
+      DriverHeroCard: native('div'), DriverDutyStatus: native('div'), DriverWorkspaceCard: native('div'), HomeQuickActions: native('div'), AssignmentsHeading: native('div'),
       DriverTripCard: function RecordingTripCard(props) { captured.push(props); return React.createElement('div', null, 'trip-card'); },
     } });
     seedOfflineCache(h);

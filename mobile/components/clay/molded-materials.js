@@ -28,16 +28,15 @@ export function moldedMaterials(isDark) {
       clayButton: raisedControl(isDark),
       clayPill: pillEdges(isDark),
       clayInput: {
-        borderWidth: 1,
-        borderTopWidth: 1.5,
-        borderBottomWidth: 2,
+        borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(22,37,31,0.18)',
+        borderTopWidth: 1, borderBottomWidth: 1,
+        ...(supported ? { boxShadow: 'none' } : {}),
       },
     });
   }
 
   const highlight = isDark ? 'rgba(220,240,229,0.07)' : 'rgba(255,255,255,0.92)';
   const shade = isDark ? 'rgba(0,0,0,0.48)' : 'rgba(83,74,53,0.20)';
-  const inputShade = isDark ? 'rgba(0,0,0,0.40)' : 'rgba(83,74,53,0.12)';
 
   const molded = (material, offset, blur, insetBlur = 4) => ({
     ...material,
@@ -59,11 +58,9 @@ export function moldedMaterials(isDark) {
     clayButton: molded(raisedControl(isDark), 4, 8, 4),
     clayPill: molded(pillEdges(isDark), 2, 5, 3),
     clayInput: {
-      borderWidth: 0,
-      borderColor: 'transparent',
-      borderTopWidth: 0,
-      borderBottomWidth: 0,
-      boxShadow: `inset 1px 2px 4px ${inputShade}, 0 1px 2px ${highlight}`,
-    },
+        borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(22,37,31,0.18)',
+        borderTopWidth: 1, borderBottomWidth: 1,
+        ...(supported ? { boxShadow: 'none' } : {}),
+      },
   });
 }

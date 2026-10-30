@@ -26,6 +26,9 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.CAMERA"
       ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "package": "com.fleet.mobile",
       "googleServicesFile": "./services/google-services.json"
     },
@@ -82,7 +85,15 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundRecording": false
+        }
+      ]
     ],
     "extra": {
       "router": {},

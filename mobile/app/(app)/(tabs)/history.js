@@ -13,6 +13,7 @@ import { offlineViewState } from "../../../lib/offline-ux";
 import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/OfflineStates";
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { SkeletonCard } from "../../../components/ui";
+import { Logo } from '../../../components/logo';
 import { ClayCard, ClayBadge, ClayTile, ClayButton } from '../../../components/clay';
 import { isCargoLoad, loadTitle, tripStatusLabel } from '../../../lib/load-presentation';
 
@@ -187,7 +188,7 @@ export default function TripsTab() {
           },
         ]}
       >
-        <Text style={[styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
+        <Logo size={24} subtitle={false} />
         <View>
           <Text style={[styles.pageTitle, { color: colors.onSurface }]}>My Trips</Text>
           <Text style={[styles.pageSub, { color: colors.onSurfaceVariant }]}>
@@ -292,7 +293,6 @@ const styles = StyleSheet.create({
     elevation: 2,
     gap: moderateScale(2),
   },
-  topBarTitle: { fontSize: moderateScale(24), fontFamily: fonts.displayBold, lineHeight: moderateScale(32) },
   pageTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
   pageSub: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
   filterBar: { },

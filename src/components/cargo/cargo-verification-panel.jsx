@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useReducer, useRef, useState } from "react";
+import React, { useEffect, useReducer, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Camera, ExternalLink, RefreshCw, ShieldCheck, Truck } from "lucide-react";
 import { CargoDecisionHistory } from "./cargo-decision-history";
@@ -9,6 +10,9 @@ import { CargoQuantityTable } from "./cargo-quantity-table";
 import { CargoHandoverEvidence, CargoHandoverEvidenceContent } from "./cargo-handover-evidence";
 import { createCargoDecisionCommandManager } from "./cargo-decision-command";
 import { useCargoHandoverAnchor } from "./use-cargo-handover-anchor";
+import { createCargoPhotoSession } from "./cargo-photo-session";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   clearCargoDeparture,
   getCargoEvidence,
@@ -112,6 +116,10 @@ function CargoReviewForm({ view, reviewerState, busy, decisionRetryPending, onDe
   const clearanceAllowed = capabilities.clearance === true && pickup;
   const blocked = busy || reviewerState.refreshRequired;
   const decisionFieldsBlocked = blocked || decisionRetryPending;
+
+  if (view?.manifest?.source_ref?.system === "INTERNAL") {
+    return <p className="text-sm text-foreground-secondary">Fleet Manager review records pickup acceptance, securement and receiving separately.</p>;
+  }
 
   if (!decisionAllowed && !clearanceAllowed) {
     return <p className="rounded-md bg-muted/20 px-3 py-2 text-xs text-foreground-secondary">This cargo record is read-only for the current server-approved capabilities.</p>;
@@ -266,7 +274,7 @@ export function CargoVerificationPanelContent({
               {manifest.physical_contract_version === 1 && <p className="text-xs text-foreground-secondary">Package facts are the source-declared transport requirements. They do not replace vehicle capacity checks, Fleet clearance or post-load securement.</p>}
             </div>
 
-            <PrivateCargoPhotos tripId={tripId} pickup={pickup} delivery={delivery} reviewerState={reviewerState} />
+            <PrivateCargoPhotos key={tripId} tripId={tripId} pickup={pickup} delivery={delivery} />
             {handoverEvidence ?? <CargoHandoverEvidenceContent />}
 
             <div className="space-y-2">
@@ -286,7 +294,7 @@ export function CargoVerificationPanelContent({
 
             <CargoDecisionHistory view={decisionHistoryView} />
 
-            <section className="rounded-lg border border-border px-3 py-3" aria-labelledby={`cargo-feedback-${tripId}`}>
+            {manifest.source_ref?.system !== "INTERNAL" && <section className="rounded-lg border border-border px-3 py-3" aria-labelledby={`cargo-feedback-${tripId}`}>
               <h3 id={`cargo-feedback-${tripId}`} className="mb-2 text-xs font-semibold text-foreground">Partner message delivery</h3>
               <CargoFeedbackStatus
                 feedback={view.feedback}
@@ -295,7 +303,7 @@ export function CargoVerificationPanelContent({
                 isRetrying={retrying}
               retryError={reviewerState.retryError}
               />
-            </section>
+            </section>}
           </>
         )}
         {view && !manifest && <p role="alert" className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground-secondary">The cargo execution has no readable manifest. No item count or source decision is assumed.</p>}
@@ -304,50 +312,44 @@ export function CargoVerificationPanelContent({
   );
 }
 
-function PrivateCargoPhotos({ tripId, pickup, delivery, reviewerState }) {
+function PrivateCargoPhotos({ tripId, pickup, delivery }) {
   const lines = [
     ...receiptPayload(pickup)?.lines?.map((line) => ({ stage: "Pickup", ...line }) || []) ?? [],
     ...receiptPayload(delivery)?.lines?.map((line) => ({ stage: "Delivery", ...line }) || []) ?? [],
   ];
   const evidence = lines.flatMap((line) => (line.evidence_ids || []).map((evidenceId) => ({ evidenceId, stage: line.stage, item: line.name || line.line_id })));
   const [localPhoto, setLocalPhoto] = useState({ id: "", url: "", loadingId: "", error: "" });
-
-  async function openPhoto(evidenceId) {
-    setLocalPhoto({ id: evidenceId, url: "", loadingId: evidenceId, error: "" });
-    try {
-      const result = await getCargoEvidence(tripId, evidenceId);
-      setLocalPhoto({ id: evidenceId, url: result.url, loadingId: "", error: "" });
-    } catch (error) {
-      setLocalPhoto({ id: evidenceId, url: "", loadingId: "", error: error.message || "The private photo could not be opened." });
-    }
-  }
+  const photoSession = useRef(null);
+  const photoOpener = useRef(null);
+  useEffect(() => {
+    const session = createCargoPhotoSession({ load: (evidenceId, options) => getCargoEvidence(tripId, evidenceId, options), onChange: setLocalPhoto });
+    photoSession.current = session;
+    return () => session.dispose();
+  }, [tripId]);
 
   if (!evidence.length) return null;
-  const shownPhoto = localPhoto.url ? localPhoto : reviewerState.photoUrl ? { url: reviewerState.photoUrl, id: reviewerState.photoId } : null;
-
   return (
     <section className="space-y-2" aria-labelledby={`cargo-evidence-${tripId}`}>
       <h3 id={`cargo-evidence-${tripId}`} className="text-xs font-semibold text-foreground">Private receipt photos</h3>
       <ul className="flex flex-wrap gap-2">
         {evidence.map((item, index) => (
           <li key={`${item.evidenceId}-${index}`}>
-            <button type="button" disabled={localPhoto.loadingId === item.evidenceId} onClick={() => openPhoto(item.evidenceId)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-xs text-foreground hover:bg-hover disabled:opacity-50">
+            <Button type="button" variant="outline" disabled={localPhoto.loadingId === item.evidenceId} onClick={event => { photoOpener.current = event.currentTarget; photoSession.current?.open(item.evidenceId); }} className="min-h-11 gap-1.5">
               <Camera className="h-3.5 w-3.5" aria-hidden="true" />
               {localPhoto.loadingId === item.evidenceId ? "Opening photo…" : `${item.stage}: ${item.item}`}
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
+      {localPhoto.loadingId && <Button type="button" variant="outline" className="min-h-11" onClick={() => photoSession.current.hide()}>Cancel opening photo</Button>}
       {localPhoto.error && <p role="alert" className="text-xs text-danger-800 dark:text-rose-200">{localPhoto.error}</p>}
-      {shownPhoto && (
-        <div className="max-w-xl rounded-lg border border-border bg-muted/10 p-2">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-xs font-medium text-foreground">Private cargo photo</p>
-            <button type="button" onClick={() => setLocalPhoto({ id: "", url: "", loadingId: "", error: "" })} className="text-xs text-primary hover:underline">Close photo</button>
-          </div>
-          <img src={shownPhoto.url} alt="Private cargo receipt evidence" className="max-h-80 w-full rounded object-contain" />
-        </div>
-      )}
+      <Dialog open={!!localPhoto.url} onOpenChange={open => { if (!open) photoSession.current.hide(); }}>
+        <DialogContent className="max-w-3xl" onCloseAutoFocus={event => { event.preventDefault(); photoOpener.current?.focus(); }}>
+          <DialogHeader><DialogTitle>Private cargo photo · Trip #{tripId}</DialogTitle><DialogDescription>Saved receipt evidence. Photo access expires after five minutes.</DialogDescription></DialogHeader>
+          {localPhoto.url && <img src={localPhoto.url} alt="Private cargo receipt evidence" className="max-h-[65vh] w-full rounded-control object-contain" onError={() => photoSession.current.imageFailed()} />}
+          <Button variant="outline" className="min-h-11" onClick={() => photoSession.current.hide()}>Close photo</Button>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -361,14 +363,24 @@ function commandId() {
 }
 
 export function CargoVerificationPanel({ tripId, linkedRequestId }) {
+  const { data: session, status } = useSession();
+  const user = session?.user;
+  const allowed = status === "authenticated" && !!user?.employeeId && !!user?.sessionId;
+  const scope = `${tripId}:${allowed ? `${user.employeeId}:${user.sessionId}:${user.role}` : "no-session"}`;
+  return <CargoVerificationPanelLoader key={scope} tripId={tripId} linkedRequestId={linkedRequestId} scope={scope} allowed={allowed} />;
+}
+
+function CargoVerificationPanelLoader({ tripId, linkedRequestId, scope, allowed }) {
   const id = Number(tripId);
   const query = useQuery({
-    queryKey: ["cargo-execution", id],
-    queryFn: () => getCargoExecution(id),
-    enabled: Number.isSafeInteger(id) && id > 0,
+    queryKey: ["cargo-execution", id, scope],
+    queryFn: ({ signal }) => getCargoExecution(id, { signal }),
+    enabled: allowed && Number.isSafeInteger(id) && id > 0,
     retry: false,
     staleTime: 0,
+    gcTime: 0,
   });
+  const currentView = allowed && ![401, 403, 404].includes(query.error?.status) ? query.data : undefined;
   const [reviewerState, dispatch] = useReducer(cargoReviewReducer, initialCargoReviewState);
   const [busy, setBusy] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -422,7 +434,7 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
   }
 
   async function submitDecision() {
-    const view = query.data;
+    const view = currentView;
     const pickup = view?.pickup_receipt;
     const communicatedAt = timeForCommand(reviewerState.decisionDraft.communicated_at);
     if (!pickup?.receipt_id || !view?.manifest?.manifest_ref?.hash || !communicatedAt) {
@@ -488,20 +500,20 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
   }
 
   function submitClearance() {
-    const pickup = query.data?.pickup_receipt;
-    if (!pickup?.receipt_id || !Number.isSafeInteger(query.data?.version)) {
+    const pickup = currentView?.pickup_receipt;
+    if (!pickup?.receipt_id || !Number.isSafeInteger(currentView?.version)) {
       dispatch({ type: "action-rejected", message: "The current pickup version is unavailable. Refresh the record before submitting." });
       return;
     }
     runAction({
       receipt_id: pickup.receipt_id,
-      expected_version: query.data.version,
+      expected_version: currentView.version,
       reason: reviewerState.clearanceReason.trim(),
     });
   }
 
   async function retryFeedback() {
-    const view = query.data;
+    const view = currentView;
     const feedback = view?.feedback;
     if (view?.capabilities?.feedback_retry !== true || feedback?.state !== "FAILED" || !feedback?.event_id || !view?.manifest?.source_ref) return;
     setRetrying(true);
@@ -522,8 +534,8 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
     <CargoVerificationPanelContent
       tripId={id}
       linkedRequestId={linkedRequestId}
-      view={query.data}
-      handoverEvidence={<CargoHandoverEvidence tripId={id} manifest={query.data?.manifest} pickupRecorded={!!query.data?.pickup_receipt} deliveryRecorded={!!query.data?.delivery_receipt} />}
+      view={currentView}
+      handoverEvidence={<CargoHandoverEvidence tripId={id} manifest={currentView?.manifest} pickupRecorded={!!currentView?.pickup_receipt} deliveryRecorded={!!currentView?.delivery_receipt} />}
       isLoading={query.isLoading || query.isFetching && !query.data}
       error={query.error}
       reviewerState={{ ...reviewerState, retryError }}

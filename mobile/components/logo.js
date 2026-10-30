@@ -11,10 +11,14 @@ const marks = {
   highContrastDark: require("../assets/brand/mark-high-contrast-dark.png"),
 };
 const inks = {
-  light: ["#285448", "#8A632C"],
-  dark: ["#F5F2EC", "#D2A765"],
-  highContrastLight: ["#000000", "#000000"],
-  highContrastDark: ["#FFFFFF", "#FFFFFF"],
+  light: "#073D30",
+  dark: "#F7DFAB",
+  highContrastLight: "#000000",
+  highContrastDark: "#FFFFFF",
+};
+const wordmarks = {
+  light: { source: require("../assets/brand/wordmark-light.png"), ratio: 264 / 70 },
+  dark: { source: require("../assets/brand/wordmark-dark.png"), ratio: 264 / 65 },
 };
 
 function useBrandVariant(variant) {
@@ -25,13 +29,14 @@ function useBrandVariant(variant) {
     : (scheme === "dark" ? "dark" : "light"));
 }
 
-/** Shared road-ribbon geometry: local PNG exports of the vector master. */
+/** Original Hotel Route texture, with plain vector variants for high contrast. */
 export function FleetOpsMark({ size = 48, variant }) {
   const selected = useBrandVariant(variant);
   return (
     <Image
       source={marks[selected]}
       resizeMode="contain"
+      fadeDuration={0}
       accessible={false}
       importantForAccessibility="no"
       style={[styles.mark, { width: size, height: size }]}
@@ -41,15 +46,20 @@ export function FleetOpsMark({ size = 48, variant }) {
 
 export function FleetOpsWordmark({ size = 28, variant }) {
   const selected = useBrandVariant(variant);
-  const [fleet, ops] = inks[selected];
+  const artwork = wordmarks[selected];
+  if (artwork) {
+    const height = size * 1.1;
+    return <Image source={artwork.source} resizeMode="contain" fadeDuration={0} accessible={false}
+      importantForAccessibility="no" style={{ width: height * artwork.ratio, height }} />;
+  }
   return (
     <Text
       accessible={false}
       // The wordmark is artwork; surrounding copy still follows system text size.
       allowFontScaling={false}
-      style={[styles.wordmark, { fontSize: size, lineHeight: size * 1.3, color: fleet }]}
+      style={[styles.wordmark, { fontSize: size, lineHeight: size * 1.3, color: inks[selected] }]}
     >
-      Fleet<Text style={{ color: ops }}>Ops</Text>
+      FleetOps
     </Text>
   );
 }
@@ -75,6 +85,6 @@ const styles = StyleSheet.create({
   container: { flexDirection: "row", alignItems: "center", gap: 12, flexShrink: 1 },
   mark: { flexShrink: 0 },
   textGroup: { justifyContent: "center", flexShrink: 1 },
-  wordmark: { fontFamily: fonts.displaySemiBold, letterSpacing: -0.7 },
+  wordmark: { fontFamily: fonts.displayBold, letterSpacing: -0.7 },
   subtitle: { fontFamily: fonts.bodyMedium, fontSize: 9, lineHeight: 14, letterSpacing: 1.4 },
 });

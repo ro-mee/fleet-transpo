@@ -14,6 +14,10 @@ last_verified: 2026-10-18
 
 # Feature: Fuel
 
+## Mobile level validation and recovery — 2026-10-29
+
+The real fuel request callback and shared practice form use mobile/lib/fuel-request-validation.js. Normalize commas and trim first; blank, whitespace, comma-only, nonfinite, nonnumeric and values outside0–100 are invalid. Explicit0 and100 remain valid. Inline guidance and disabled state match callback validation; vehicle/photo gates remain. Regression checks execute actual submit callbacks rather than only a copied validator. No allocation/scanner/receipt/API policy changed. See [[Mobile UI UX Audit 2026-10-29]] for combined verification and physical camera/keyboard acceptance limits.
+
 ## Status: working scanner flow — USER-CONFIRMED
 
 Receipt capture and Gemini extraction work on-device. The last live row-count check was 2026-08-11, when `fuelrecords` had **0 rows**; the database count was not re-queried today, so persisted end-to-end usage remains to be verified after the latest scanner change.

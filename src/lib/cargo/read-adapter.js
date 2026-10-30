@@ -1,12 +1,30 @@
 import { cargoError } from '@/services/cargo-manifest.service';
 import { assertCargoDriver } from '@/services/cargo-execution.repository';
+import { INTERNAL_CARGO_CONFIG } from './internal-policy';
+import { assertInternalCargoTrip } from '@/services/cargo-internal-authority';
+import { withTransaction } from '@/lib/db';
 
-// Explicit fixture adapter only; routes do not install a database provider.
+// The historical external adapter remains an explicit nonproduction fixture.
 export function createCargoReadAdapter({db,config,simulated,environment,approvalRef,authorizeStaffRead}) {
   const configured=()=>{
     if(process.env.NODE_ENV==='production'||simulated!==true||!['test','development'].includes(environment)||!approvalRef?.trim())throw cargoError('CARGO_CONFIGURATION_REQUIRED','Cargo read authority is not configured.',503);
   };
   configured();
+  return createReadAdapter({ db, config, configured, approvalRef, authorizeStaffRead });
+}
+
+export function createInternalCargoReadAdapter({ db }) {
+  return createReadAdapter({ db, config: INTERNAL_CARGO_CONFIG, internal: true,
+    configured: () => { if (typeof window !== 'undefined') throw cargoError('CARGO_FORBIDDEN', 'Cargo reads are server-only.', 403); },
+  });
+}
+
+function createReadAdapter({db,config,configured,approvalRef,authorizeStaffRead,internal=false}) {
+  async function authorize(tripId,session,tx) {
+    if(internal) await assertInternalCargoTrip(tripId,session,tx);
+    else if(session?.user?.role==='driver') await assertCargoDriver(tripId,session,tx);
+    else if(!authorizeStaffRead||await authorizeStaffRead({tripId,session,tx,approvalRef})!==true)throw cargoError('CARGO_FORBIDDEN','Approved cargo read authority is required.',403);
+  }
   return {
     async resolveSourceRequest({principal,externalRequestId,receiptId}) {
       configured();
@@ -23,8 +41,7 @@ export function createCargoReadAdapter({db,config,simulated,environment,approval
       if(!Number.isSafeInteger(tripId)||!Number.isInteger(limit)||limit<1||limit>50||!Number.isInteger(offset)||offset<0||offset>10000)throw cargoError('CARGO_INVALID_INPUT','Invalid cargo history page.',400);
       return db.withTransaction(async base=>{
         const tx={...base,cargoConfig:config};
-        if(session?.user?.role==='driver')await assertCargoDriver(tripId,session,tx);
-        else if(!authorizeStaffRead||await authorizeStaffRead({tripId,session,tx,approvalRef})!==true)throw cargoError('CARGO_FORBIDDEN','Approved cargo read authority is required.',403);
+        await authorize(tripId,session,tx);
         const rows=(await tx.query(`WITH events AS (
             SELECT r.receipt_id::text AS event_id,
               CASE r.stage WHEN 'PICKUP' THEN 'PICKUP_RECORDED' ELSE 'DELIVERY_RECORDED' END AS event_type,
@@ -38,14 +55,18 @@ export function createCargoReadAdapter({db,config,simulated,environment,approval
             SELECT c.clearance_id::text,'FLEET_CLEARANCE_RECORDED',c.version,c.created_at,
               NULL::text,NULL::text,NULL::text,NULL::text
             FROM cargo_fleet_clearances c JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1
-            UNION ALL
+            ${internal ? `UNION ALL
+            SELECT review.review_id::text,'INTERNAL_'||review.kind||'_REVIEW',review.execution_version,review.reviewed_at,
+              NULL::text,review.action,NULL::text,NULL::text
+            FROM cargo_internal_reviews review JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1` : ''}
+            ${internal ? '' : `UNION ALL
             SELECT f.event_id::text,'PARTNER_FEEDBACK',f.execution_version,COALESCE(f.acknowledged_at,f.created_at),
               NULL::text,NULL::text,f.status,f.last_error_code
-            FROM cargo_feedback_outbox f JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1
+            FROM cargo_feedback_outbox f JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1`}
           )
           SELECT event_id,event_type,execution_version,occurred_at,stage,action,status,last_error_code
           FROM events ORDER BY occurred_at DESC,event_id LIMIT $2 OFFSET $3`,[tripId,limit+1,offset])).rows;
-        const latestFeedback=(await tx.query(`SELECT event_id::text,status,last_error_code
+        const latestFeedback=internal ? null : (await tx.query(`SELECT event_id::text,status,last_error_code
           FROM cargo_feedback_outbox f JOIN cargo_trip_executions x USING(execution_id)
           WHERE x.trip_id=$1 ORDER BY f.execution_version DESC,f.created_at DESC,f.event_id LIMIT 1`,[tripId])).rows[0]??null;
         return {rows:rows.slice(0,limit),has_more:rows.length>limit,latest_feedback:latestFeedback};
@@ -56,8 +77,7 @@ export function createCargoReadAdapter({db,config,simulated,environment,approval
       if(!Number.isSafeInteger(tripId)||tripId<1)throw cargoError('CARGO_INVALID_INPUT','Invalid cargo trip.',400);
       return db.withTransaction(async base=>{
         const tx={...base,cargoConfig:config};
-        if(session?.user?.role==='driver')await assertCargoDriver(tripId,session,tx);
-        else if(!authorizeStaffRead||await authorizeStaffRead({tripId,session,tx,approvalRef})!==true)throw cargoError('CARGO_FORBIDDEN','Approved cargo read authority is required.',403);
+        await authorize(tripId,session,tx);
         const rows=(await tx.query(`SELECT linked.kind,linked.local_id FROM (
             SELECT 'REQUEST'::text AS kind,m.request_id::text AS local_id
             FROM cargo_trip_executions e JOIN trips t ON t.trip_id=e.trip_id
@@ -85,4 +105,11 @@ export function createCargoReadAdapter({db,config,simulated,environment,approval
       });
     },
   };
+}
+
+export function readInternalCargoHistory(input) {
+  return createInternalCargoReadAdapter({ db: { withTransaction } }).readHistory(input);
+}
+export function resolveInternalCargoSourceLink(input) {
+  return createInternalCargoReadAdapter({ db: { withTransaction } }).resolveSourceLink(input);
 }

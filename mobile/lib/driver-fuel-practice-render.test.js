@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { fuelLevelError } from './fuel-request-validation';
 import { nativeRender, nativeViews, nativeTheme } from './test-helpers/native-render';
-const deps = { 'react-native': { ...nativeViews, Image: 'Image', ActivityIndicator: 'Spinner' }, '@expo/vector-icons': { Ionicons: 'Icon' }, '../../lib/theme-context': nativeTheme, '../../lib/theme': { fonts: {}, TOUCH_TARGET: 48 }, '../../lib/scaling': { moderateScale: x => x }, '../clay': { ClayCard: 'Card', ClayButton: 'Button' }, '../coachmarks': { CoachMarkTarget: 'Target' } };
+const deps = { 'react-native': { ...nativeViews, Image: 'Image', ActivityIndicator: 'Spinner' }, '@expo/vector-icons': { Ionicons: 'Icon' }, '../../lib/theme-context': nativeTheme, '../../lib/theme': { fonts: {}, TOUCH_TARGET: 48 }, '../../lib/scaling': { moderateScale: x => x }, '../clay': { ClayCard: 'Card', ClayButton: 'Button' }, '../coachmarks': { CoachMarkTarget: 'Target' }, '../../lib/fuel-request-validation': { fuelLevelError } };
 describe('actual shared fuel forms', () => {
   it('edits the actual receipt cost field and submits through the supplied callback', async () => {
     const cost = vi.fn(), submit = vi.fn(), clearPrice = vi.fn();

@@ -16,11 +16,15 @@ source:
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
   - src/services/driver-qualification.service.js
-last_verified: 2026-10-12
+last_verified: 2026-10-27
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
 # Feature: Driver Management
+
+## Owner-authorized Cargo Tester verified fixture - 2026-10-27
+
+Driver98 now has an explicitly fictional Professional/B license, private front/back DEMO images and a synthetic verified app state after the owner instructed use demo details and make it verified. Disabled roleless fixture identity138 is the verifier, not a real staff member. License number startsDEMO and the images/audit explicitly state no genuine card was checked; the legacy physical_card field is fixture serialization only. The actual eligibility evaluator passes for demo vehicle142 and the existing missing-review negative case still blocks. This changes bounded test data, not the license-review policy or ordinary workflow. See [[Cargo Tester Delivery Setup 2026-10-27]] for exact scope, evidence and real-operation limits.
 
 ## Driver profile deployment build fix - 2026-10-16
 

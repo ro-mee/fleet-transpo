@@ -528,30 +528,14 @@ export default function Home() {
     () => router.push({ pathname: '/inspection', params: { mode: 'preshift' } }),
     [router]
   );
-  // End Duty leads while the driver is on duty, and only then. It is the one
-  // entry here that is time-critical, and — more importantly — the only way out
-  // of a shift that ends early. The End Duty card further down this screen is
-  // gated on the 30-minute window before shift end, so a driver sent home sick
-  // at 3pm would otherwise have no path to clock out at all: Profile no longer
-  // carries any duty control. Present for the whole session rather than only
-  // outside the window, so the row does not reshuffle under the driver's thumb
-  // when the card appears.
-  //
-  // `checkedIn` is false whenever the duty fetch has not succeeded, which hides
-  // this rather than offering to end a shift the app cannot confirm is running —
-  // the same fail-quiet rule the card follows.
-  //
-  // Placed first, so the phone layout (which shows four tiles plus "More") keeps
-  // it visible. That pushes Fuel behind "More" while on duty; ending the shift
-  // outranks reporting fuel.
+  // Incident stays visible; End Duty has its own persistent action.
   const shortcuts = useMemo(() => [
-    ...(duty.checkedIn && workspace.mode !== 'cargo' ? [{ label: 'End Duty', icon: 'time-outline', action: goEndDuty }] : []),
     { label: 'Pre-Shift', icon: 'clipboard-outline', action: goPreShift },
     { label: 'My Schedule', icon: 'calendar', action: goSchedule },
     { label: 'Activity Log', icon: 'pulse', action: goSubmissions },
     { label: 'Report Incident', icon: 'shield-checkmark', action: goIncidents },
     ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: goFuelReport }] : []),
-  ], [goEndDuty, goPreShift, goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel, duty.checkedIn, workspace.mode]);
+  ], [goPreShift, goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel]);
 
   // Prefetch quick-action destination bundles while Home is idle
   useEffect(() => {
@@ -715,8 +699,7 @@ export default function Home() {
           onTrips={goTrips}
           onHistory={goHistory} onVehicle={goVehicle}
         />}
-
-        {!loading ? <DriverWorkspaceCard compact={workspace.mode === 'cargo'} loading={profileLoading && !driverProfile} workspace={workspace} trip={activeTrip} assignedVehicle={driverProfile?.assignedVehicle} /> : null}
+        {!loading && (workspace.reason || (profileLoading && !driverProfile)) ? <DriverWorkspaceCard compact loading={profileLoading && !driverProfile} workspace={workspace} trip={activeTrip} assignedVehicle={driverProfile?.assignedVehicle} /> : null}
 
         {/* Unsent incident reports — quarantined offline, surfaced globally */}
         {deadLetterCount > 0 && (
@@ -756,15 +739,16 @@ export default function Home() {
           </Pressable>
         )}
 
+        {loading ? <DriverTripCardSkeleton pulse={skeletonPulse} /> : activeTrip ? <DriverTripCard workspace={workspace} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
+          offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
+          interactivePreview previewActive={screenActive}
+          trackingText={canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
+          onAction={handleTripAction} onDetails={goDetails} /> : null}
+
         <HomeQuickActions cargo={workspace.mode === 'cargo'} actions={shortcuts} scrollRef={scrollRef} />
-        {workspace.mode === 'cargo' && duty.checkedIn && !duty.due && !tourEndDutyStep ? <ClayButton label="End Duty" icon="time-outline" variant="tonal" onPress={goEndDuty} /> : null}
+        {duty.loaded && duty.checkedIn && !duty.due && !tourEndDutyStep ? <ClayButton label="End Duty" icon="time-outline" variant="tonal" onPress={goEndDuty} /> : null}
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
-        {loading ? (
-          <>
-            <AssignmentsHeading onPress={goTrips} title="Today’s Assignments" />
-            <DriverTripCardSkeleton pulse={skeletonPulse} />
-          </>
-        ) : (!activeTrip && upcoming.length === 0 ? <>
+        {!loading && (!activeTrip && upcoming.length === 0 ? <>
           {/* Preserved empty state — intentionally unchanged: heading, null
               cards, and all confirmed/offline/not-synced copy stay exactly as
               they were. Dynamic layout below only runs with trip data. */}
@@ -780,16 +764,12 @@ export default function Home() {
             interactivePreview={!activeTrip} previewActive={screenActive}
             onAction={handleTripAction} onDetails={goDetails} /> : null}
         </> : <>
-          {activeTrip ? <DriverTripCard workspace={workspace} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
-            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
-            interactivePreview previewActive={screenActive}
-            trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
-            onAction={handleTripAction} onDetails={goDetails} /> : null}
           <AssignmentsHeading onPress={goTrips} title={workspace.mode === 'cargo' ? 'Next Cargo Assignments' : 'Upcoming Trips'} />
           <UpcomingTripList driverType={driverProfile?.driverType} trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!offline} previewActive={screenActive} />
         </>)}
+
 
       </ScrollView>
 

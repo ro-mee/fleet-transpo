@@ -11,6 +11,7 @@ const EXPECTED_OPERATIONS_ROUTES = [
   "/reservations/queue",
   "/dispatch/calendar",
   "/trips",
+  "/cargo-review",
   "/routes",
   "/incidents",
   "/fuel",

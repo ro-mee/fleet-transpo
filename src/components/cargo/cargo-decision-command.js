@@ -1,8 +1,9 @@
 function freezePayload(payload) {
   const frozen = { ...payload };
-  if (Array.isArray(payload.communication_evidence_ids)) {
-    frozen.communication_evidence_ids = Object.freeze([...payload.communication_evidence_ids]);
+  for (const key of ['communication_evidence_ids', 'reviewed_evidence_ids']) {
+    if (Array.isArray(payload[key])) frozen[key] = Object.freeze([...payload[key]]);
   }
+  if (payload.securement_checks) frozen.securement_checks = Object.freeze({ ...payload.securement_checks });
   return Object.freeze(frozen);
 }
 

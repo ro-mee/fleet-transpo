@@ -10,7 +10,7 @@ const quantity = z.string().refine(value => {
 }, 'Use a nonnegative decimal string with at most three decimal places.').transform(value => normalizeQuantity(value, { basis: 'UNIT' }));
 export const cargoServiceSchema = z.enum(['RESTAURANT_SUPPLY_PICKUP', 'RESTAURANT_FOOD_DELIVERY', 'HOTEL_SUPPLY_TRANSFER']);
 export const manifestRefSchema = z.object({ kind: z.enum(['REQUEST', 'SUPPLY']), id: uuid, revision: z.number().int().positive().max(2147483647), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
-export const sourceRefSchema = z.object({ system: z.enum(['PMS', 'POS', 'SCM']), organization_id: text(128), external_request_id: text(255) }).strict();
+export const sourceRefSchema = z.object({ system: z.enum(['PMS', 'POS', 'SCM', 'INTERNAL']), organization_id: text(128), external_request_id: text(255) }).strict();
 const lineSchema = z.object({
   line_id: text(128), name: text(500), quantity_basis: z.enum(['TRANSPORT_PACKAGE', 'UNIT']),
   expected_quantity: quantity, unit: text(32), reference_image_ref: uuid.nullable(),
@@ -72,6 +72,20 @@ export function cargoFeedbackReceiptPayload(payload) {
   return publicReceiptSchema.parse(Object.fromEntries(Object.entries(receipt).filter(([key]) => key !== 'handover')));
 }
 export const decisionSchema = z.object({ event_id: uuid, receipt_id: uuid, manifest_hash: z.string().regex(/^[a-f0-9]{64}$/), action: z.enum(['WAIT', 'ACCEPT_OBSERVED', 'REJECT_PICKUP']), reason: text(2000) }).strict();
+
+export const internalReviewSchema = z.object({
+  submission_id: uuid, receipt_id: uuid, expected_version: z.number().int().positive(),
+  kind: z.enum(['SOURCE', 'SECUREMENT', 'RECEIVER']),
+  action: z.enum(['ACCEPT_OBSERVED', 'WAIT', 'REJECT_PICKUP', 'CLEAR', 'ACCEPT_DELIVERY']),
+  reason: z.string().trim().min(1).max(2000),
+  reviewed_evidence_ids: z.array(uuid).max(2500).refine(ids => new Set(ids).size === ids.length),
+  securement_checks: z.object({ load_secured: z.boolean(), vehicle_safe: z.boolean(), counts_reviewed: z.boolean() }).strict().optional(),
+}).strict().superRefine((review, ctx) => {
+  const actions = { SOURCE: ['ACCEPT_OBSERVED', 'WAIT', 'REJECT_PICKUP'], SECUREMENT: ['CLEAR', 'WAIT'], RECEIVER: ['ACCEPT_DELIVERY', 'WAIT'] };
+  if (!actions[review.kind].includes(review.action)) ctx.addIssue({ code: 'custom', path: ['action'], message: 'Review action does not match its stage.' });
+  if (review.action === 'CLEAR' && !['load_secured', 'vehicle_safe', 'counts_reviewed'].every(key => review.securement_checks?.[key] === true)) ctx.addIssue({ code: 'custom', path: ['securement_checks'], message: 'Confirm all load safety checks.' });
+  if (review.kind !== 'SECUREMENT' && review.securement_checks !== undefined) ctx.addIssue({ code: 'custom', path: ['securement_checks'], message: 'Securement checks belong to securement review.' });
+});
 
 export const cargoFeedbackEventTypeSchema = z.enum(['PICKUP_RECORDED', 'DISCREPANCY_REPORTED', 'SOURCE_DECISION_RECORDED', 'DELIVERY_RECORDED', 'TRANSPORT_CLOSED']);
 export const cargoFeedbackSchema = z.object({

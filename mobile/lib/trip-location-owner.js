@@ -5,17 +5,49 @@ import { useAuth } from "./auth";
 import { subscribeApiEvents } from "./api";
 import { captureCargoSession, isCurrentCargoSession } from "./cargo-sync";
 import { accumulateFix, createAccumulator } from "./gps-odometer";
-import { startBackgroundTracking, stopBackgroundTracking, updateLegContext, mergeStoredKm, legForStatus } from "./background-tracking";
+import { prepareBackgroundTracking, startBackgroundTracking, stopBackgroundTracking, updateLegContext, mergeStoredKm, legForStatus } from "./background-tracking";
 
 // The trip stream outlives the Map tab. The tab owns only its visual subscription.
 const TRACKED_STATUSES = new Set(["Driver Accepted", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "In Progress"]);
 const listeners = new Set();
+const trackingListeners = new Set();
+const IDLE_TRACKING = Object.freeze({ tripId: null, leg: null, state: "idle", reason: null });
+let trackingStatus = IDLE_TRACKING;
 let owner = null;
 let latestLocation = null;
 let trackedRevision = 0;
 // A replacement signed-in owner must wait for the previous native task to stop.
 let nativeWork = Promise.resolve();
-const enqueueNative = (work) => { nativeWork = nativeWork.then(work, work).catch(() => {}); };
+const enqueueNative = (work) => {
+  const result = nativeWork.then(work, work);
+  nativeWork = result.catch(() => {});
+  return result;
+};
+
+function publishTrackingStatus(status) {
+  trackingStatus = Object.freeze(status);
+  for (const listener of trackingListeners) listener(trackingStatus);
+}
+
+/** Native registration readiness, never proof of GPS delivery. */
+export function getTripTrackingStatus() {
+  return owner?.isCurrent() ? trackingStatus : IDLE_TRACKING;
+}
+
+export function subscribeTripTrackingStatus(listener) {
+  trackingListeners.add(listener);
+  return () => trackingListeners.delete(listener);
+}
+
+/** All native preparation stays in the same owner/queue as AppState cleanup. */
+export async function prepareTripNavigation(options) {
+  return owner?.prepareNavigation(options) ?? { ok: false, reason: "stale-trip" };
+}
+
+/** Release foreground preparation after a failed or abandoned Maps launch. */
+export async function cancelTripNavigation(options) {
+  return owner?.cancelNavigation(options) ?? { ok: false, reason: "stale-trip" };
+}
 
 function publishLocation(location) {
   latestLocation = location;
@@ -58,6 +90,48 @@ function createOwner(session) {
   const distance = { current: createAccumulator() };
   const isCurrent = () => !disposed && isCurrentCargoSession(session);
   const stopForeground = () => { foreground?.remove(); foreground = null; };
+  const setTrackingStatus = (state, reason = null) => publishTrackingStatus({
+    tripId: trip?.trip_id ?? null, leg: trip ? legForStatus(trip.trip_status) : null, state, reason,
+  });
+  const navigationCurrent = (tripId, leg, expected) => isCurrent() && generation === expected && appActive &&
+    tripId != null && String(trip?.trip_id) === String(tripId) &&
+    leg != null && legForStatus(trip?.trip_status) === leg;
+
+  function prepareNavigation({ tripId, leg, requestPermission = false } = {}) {
+    const expected = generation;
+    const current = () => navigationCurrent(tripId, leg, expected);
+    if (!current()) return Promise.resolve({ ok: false, reason: "stale-trip" });
+    setTrackingStatus("preparing");
+    return enqueueNative(async () => {
+      if (!current()) return { ok: false, reason: "stale-trip" };
+      let ready;
+      try { ready = await prepareBackgroundTracking({ tripId, leg, requestPermission, isCurrent: current }); }
+      catch { ready = { ok: false, reason: "start-failed" }; }
+      if (!current()) {
+        await stopBackgroundTracking();
+        return { ok: false, reason: "stale-trip" };
+      }
+      if (ready?.ok !== true) {
+        await stopBackgroundTracking();
+        if (!current()) return { ok: false, reason: "stale-trip" };
+        ready = { ok: false, reason: ready?.reason || "start-failed" };
+      }
+      setTrackingStatus(ready.ok ? "ready" : "paused", ready.reason ?? null);
+      return ready;
+    });
+  }
+
+  function cancelNavigation({ tripId, leg } = {}) {
+    const expected = generation;
+    const current = () => navigationCurrent(tripId, leg, expected);
+    return enqueueNative(async () => {
+      if (!current()) return { ok: false, reason: "stale-trip" };
+      const result = await stopBackgroundTracking();
+      if (!current()) return { ok: false, reason: "stale-trip" };
+      setTrackingStatus(result?.ok === false ? "paused" : "idle", result?.reason ?? null);
+      return result ?? { ok: true };
+    });
+  }
 
   async function startForeground(expected) {
     const current = () => isCurrent() && generation === expected && appActive && trip != null;
@@ -101,6 +175,9 @@ function createOwner(session) {
     distance.current.prev = null;
     distance.current.pending = null;
     const current = () => isCurrent() && generation === expected;
+    const expectedTrip = trip;
+    // Preserve a failed departure for the returning Map until an explicit retry.
+    if (!trip || trackingStatus.state !== "paused") setTrackingStatus("idle");
     enqueueNative(async () => {
       if (!current()) return;
       if (!trip) {
@@ -118,11 +195,20 @@ function createOwner(session) {
         await updateLegContext({ tripId: trip.trip_id, leg: legForStatus(trip.trip_status) });
         if (current()) startForeground(expected);
       } else {
-        await updateLegContext({ tripId: trip.trip_id, leg: legForStatus(trip.trip_status) });
-        if (!current()) return;
-        await startBackgroundTracking();
+        let result;
+        try {
+          await updateLegContext({ tripId: trip.trip_id, leg: legForStatus(trip.trip_status) });
+          if (!current()) return;
+          result = await startBackgroundTracking(false, current);
+        } catch { result = { ok: false, reason: "start-failed" }; }
         // Completion, signout or foreground return may win during the OS start.
-        if (!current()) await stopBackgroundTracking();
+        if (!current()) {
+          await stopBackgroundTracking();
+          // A real failure remains useful after return; stale/cancelled work does not.
+          if (isCurrent() && appActive && trip === expectedTrip && trackingStatus.state !== "preparing" &&
+              result?.ok === false && result.reason !== "stale-trip") setTrackingStatus("paused", result.reason || "start-failed");
+        }
+        else setTrackingStatus(result?.ok === true ? "ready" : "paused", result?.ok === true ? null : result?.reason || "start-failed");
       }
     });
   }
@@ -135,6 +221,7 @@ function createOwner(session) {
     trackedRevision += 1;
     const changedTrip = String(trip?.trip_id ?? "") !== String(next?.trip_id ?? "");
     trip = next;
+    setTrackingStatus("idle");
     if (changedTrip) {
       distance.current = createAccumulator();
       publishLocation(null);
@@ -167,6 +254,7 @@ function createOwner(session) {
     unsubscribe();
     session.signal.removeEventListener("abort", dispose);
     publishLocation(null);
+    publishTrackingStatus(IDLE_TRACKING);
     enqueueNative(async () => {
       await stopBackgroundTracking();
       await updateLegContext({ tripId: null, leg: null });
@@ -174,7 +262,7 @@ function createOwner(session) {
   }
   session.signal.addEventListener("abort", dispose, { once: true });
   return {
-    setTrip, dispose, isCurrent,
+    setTrip, dispose, isCurrent, prepareNavigation, cancelNavigation,
     retry() {
       if (!isCurrent() || !trip) return;
       publishLocation(null);

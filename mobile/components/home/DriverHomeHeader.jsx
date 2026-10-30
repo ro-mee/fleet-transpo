@@ -15,6 +15,7 @@ export default memo(function DriverHomeHeader({ driverName, driverType, initial,
   const { settings } = useSettings();
   const { width, fontScale } = useWindowDimensions();
   const compactWeather = width < 600 || fontScale > 1.15 || settings.textSize === 'large';
+  const stacked = width < 360 || fontScale > 1.3 || settings.textSize === 'large';
   const mats = clayMaterials(scheme === 'dark');
   const count = Math.max(0, Number(unreadCount) || 0);
   const shadow = { shadowColor: colors.shadow, shadowOpacity: settings.highContrast ? 0 : scheme === 'dark' ? 0.35 : 0.17 };
@@ -35,8 +36,8 @@ export default memo(function DriverHomeHeader({ driverName, driverType, initial,
         <FleetOpsWordmark size={16} />
       </View>
     </View>
-    <View style={s.primaryRow}>
-      <View style={s.identity}>
+    <View style={[s.primaryRow, stacked && { flexDirection: 'column', alignItems: 'stretch' }]}>
+      <View style={[s.identity, stacked && { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' }]}>
         <Pressable onPress={onProfile} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => [s.avatar, { ...s.raised, ...shadow, borderColor: colors.surfaceContainerLow, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1, overflow: 'hidden' }]}>
           {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
           <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24, fontWeight: '700' }]}>{initial || 'D'}</Text>
@@ -55,7 +56,7 @@ export default memo(function DriverHomeHeader({ driverName, driverType, initial,
           {['Cargo', 'Passenger'].includes(driverType) ? <Text style={type.supporting}>{driverType} driver</Text> : null}
         </View>
       </View>
-      <View style={s.utilities}>
+      <View style={[s.utilities, stacked && { alignSelf: 'flex-end' }]}>
         <WeatherChip value={weather} compact={compactWeather} />
         <Pressable onPress={onNotifications} accessibilityRole="button" accessibilityLabel={`Notifications${count ? `, ${count} unread` : ', no unread notifications'}`} style={({ pressed }) => [s.bell, { ...shadow, ...mats.clayTile, backgroundColor: colors.surfaceContainerLow, opacity: pressed ? 0.8 : 1 }]}>
           <Ionicons name="notifications-outline" size={20} color={colors.primary} />
