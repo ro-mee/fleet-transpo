@@ -42,13 +42,13 @@ export default function TripOperationalSummary({ cargo, trip, target, preStart, 
         {!live && (trip.estimated_distance != null || trip.estimated_duration != null) ? <Text style={[type.caption, { color: colors.onPrimaryContainer }]}>Planned pickup to delivery{trip.estimated_distance != null ? ` · ${Number(trip.estimated_distance).toFixed(1)} km` : ''}{trip.estimated_duration != null ? ` · ${Math.ceil(trip.estimated_duration)} min` : ''}</Text> : null}
       </View>
     </View></CoachMarkTarget>}
-    <View style={[styles.loadRow, { borderTopColor: colors.outlineVariant }]}>
+    {expanded ? <View style={[styles.loadRow, { borderTopColor: colors.outlineVariant }]}>
       <Ionicons name="cube-outline" size={26} color={colors.primary} />
       <View style={styles.flex}>
         <Text style={[type.labelLg, { color: colors.onSurface }]}>{loadTitle({ ...trip, load_type: 'Cargo' })}</Text>
         <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>{loadSubtitle({ ...trip, load_type: 'Cargo' }) || 'Declared weight not supplied'}</Text>
       </View>
-    </View>
+    </View> : null}
     {expanded ? <View style={styles.targetRow}>
       <Ionicons name="car-outline" size={18} color={colors.onSurfaceVariant} />
       <Text style={[type.supporting, styles.flex, { color: colors.onSurfaceVariant }]}>{vehicle || 'Assigned vehicle details unavailable'}</Text>

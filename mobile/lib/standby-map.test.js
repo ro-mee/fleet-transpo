@@ -10,6 +10,8 @@ it('keeps coverage geographic when zooming, moving and recentering', () => {
   let fit;
   const window = {
     currentRadarKm: 5,
+    __viewportInsets: { top: 100, bottom: 240, left: 0, right: 0 },
+    __navigationHeight: 0,
     originMarker: { getLngLat: () => center },
     ttMap: {
       project: p => ({ x: (p.lng ?? p[0]) * scale, y: (p.lat ?? p[1]) * scale }),
@@ -23,7 +25,7 @@ it('keeps coverage geographic when zooming, moving and recentering', () => {
     document: { getElementById: () => ({ style }) },
     tt: { LngLatBounds: class { points = []; extend(p) { this.points.push(p); } } },
   });
-  for (const name of ['createGeoJsonCircle', 'updateRadarCirclePositions', 'updateRadarBloomScale', 'recenterRadar']) {
+  for (const name of ['__cameraPadding', 'createGeoJsonCircle', 'updateRadarCirclePositions', 'updateRadarBloomScale', 'recenterRadar']) {
     const body = source.match(new RegExp(`window\\.${name} = function[\\s\\S]*?^              };`, 'm'))[0];
     vm.runInContext(body, context);
   }
@@ -42,5 +44,6 @@ it('keeps coverage geographic when zooming, moving and recentering', () => {
   expect(window.currentRadarZoom).toBe(11);
   expect(fit.bounds.points).toHaveLength(65);
   expect(fit.options.padding.bottom).toBeGreaterThan(fit.options.padding.top);
+  expect(fit.options.padding).toEqual({ top: 124, bottom: 264, left: 24, right: 24 });
   expect(fit.options.bearing).toBe(0);
 });

@@ -22,6 +22,7 @@ import {
 } from '../lib/fleet-bridge';
 
 let cachedCarImage = '';
+let cachedMapFontsCss = '';
 
 const TomTomMap = forwardRef(({ 
   origin, 
@@ -43,6 +44,8 @@ const TomTomMap = forwardRef(({
   responders = [],
   showVehicleMarker = true,
   topInset = 36,
+  viewportInsets = {},
+  onNavigationLayout,
   onMarkerPress,
   onMapDragged,
   onRouteData,
@@ -85,6 +88,29 @@ const TomTomMap = forwardRef(({
       }
     }
     loadCar();
+    async function loadMapFonts() {
+      try {
+        if (!cachedMapFontsCss) {
+          const faces = [
+            [600, require('@expo-google-fonts/plus-jakarta-sans/600SemiBold/PlusJakartaSans_600SemiBold.ttf')],
+            [700, require('@expo-google-fonts/plus-jakarta-sans/700Bold/PlusJakartaSans_700Bold.ttf')],
+          ];
+          const rules = await Promise.all(faces.map(async ([weight, source]) => {
+            const asset = await Asset.fromModule(source).downloadAsync();
+            if (!asset.localUri) return '';
+            let base64 = '';
+            if (typeof FileSystem?.File !== 'undefined') base64 = await new FileSystem.File(asset.localUri).base64();
+            else if (FileSystem?.readAsStringAsync) base64 = await FileSystem.readAsStringAsync(asset.localUri, { encoding: FileSystem.EncodingType.Base64 });
+            return base64 ? `@font-face{font-family:FleetMap;src:url(data:font/ttf;base64,${base64}) format('truetype');font-weight:${weight};font-display:swap;}` : '';
+          }));
+          cachedMapFontsCss = rules.join('');
+        }
+        if (active && cachedMapFontsCss) webViewRef.current?.injectJavaScript(`if(window.__setMapFonts) window.__setMapFonts(${serializeInlineScriptValue(cachedMapFontsCss)}); true;`);
+      } catch (_) {
+        // The system font remains readable if an optional bundled font fails.
+      }
+    }
+    loadMapFonts();
     return () => { active = false; };
   }, []);
 
@@ -215,6 +241,18 @@ const TomTomMap = forwardRef(({
   const safeDestinationLat = finiteNumberInRange(destination?.lat, -90, 90);
   const safeDestinationLng = finiteNumberInRange(destination?.lng, -180, 180);
   const safeTopInset = finiteNumberInRange(topInset, 0, 300) ?? 36;
+  const viewportInsetsJs = serializeInlineScriptValue({
+    top: finiteNumberInRange(viewportInsets?.top, 0, 10000) ?? 0,
+    bottom: finiteNumberInRange(viewportInsets?.bottom, 0, 10000) ?? 0,
+    left: finiteNumberInRange(viewportInsets?.left, 0, 10000) ?? 0,
+    right: finiteNumberInRange(viewportInsets?.right, 0, 10000) ?? 0,
+  });
+  const layoutBridgeJs = `if(window.__setViewportInsets) window.__setViewportInsets(${viewportInsetsJs}, ${safeTopInset}); true;`;
+  const latestLayoutBridgeRef = useRef(layoutBridgeJs);
+  latestLayoutBridgeRef.current = layoutBridgeJs;
+  useEffect(() => {
+    if (isMapReadyRef.current) webViewRef.current?.injectJavaScript(layoutBridgeJs);
+  }, [layoutBridgeJs]);
   const hasOriginFix = safeOriginLat != null && safeOriginLng != null;
   // Latest fix snapshot for the MAP_READY flush: the origin effect below
   // does not re-fire for values that arrived before the document finished
@@ -247,6 +285,7 @@ const TomTomMap = forwardRef(({
           <link rel="stylesheet" type="text/css" href="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css" />
           <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js"></script>
           <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/services/services-web.min.js"></script>
+          <style id="fleetMapFonts"></style>
           <style>
               :root { color-scheme: ${scheme}; }
               * { box-sizing: border-box; }
@@ -286,59 +325,24 @@ const TomTomMap = forwardRef(({
               .on-route-badge { background: ${colors.error}; color: ${colors.onError}; padding: 5px 9px; border-radius: 12px; font-size: 11px; font-weight: 800; font-family: system-ui, sans-serif; box-shadow: 0 4px 12px rgba(22,37,31,0.2); border: 2px solid ${colors.surface}; white-space: nowrap; pointer-events: none; }
               .on-route-badge.yellow { background: ${colors.secondary}; color: ${colors.onSecondary}; }
 
-              .nav-header { position: absolute; top: ${safeTopInset}px; left: 16px; right: 16px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: system-ui, sans-serif; pointer-events: none; }
-              
-              .nav-main-banner { 
-                  background: ${colors.inverseSurface};
-                  border-radius: 16px;
-                  padding: 8px 18px 8px 8px;
-                  display: flex; 
-                  align-items: center; 
-                  color: ${colors.inverseOnSurface};
-                  box-shadow: 0 12px 32px rgba(22,37,31,0.24);
-                  position: relative; 
-                  max-width: 400px;
-                  width: 100%;
-              }
-              
-              .nav-icon-wrapper { 
-                  width: 56px; 
-                  height: 56px; 
-                  border-radius: 12px;
-                  background: ${colors.secondary};
-                  display: flex; 
-                  align-items: center; 
-                  justify-content: center; 
-                  flex-shrink: 0; 
-                  position: relative;
-              }
-              
-              .nav-icon { width: 26px; height: 26px; fill: ${colors.onSecondary}; }
-              
-              .nav-info { margin-left: 18px; flex-grow: 1; display: flex; flex-direction: column; justify-content: center; padding-right: 8px; }
-              
-              .nav-dist-row { display: flex; align-items: baseline; gap: 4px; margin-bottom: 2px; }
-              .nav-dist { font-size: 28px; font-weight: 800; color: ${colors.inverseOnSurface}; }
-              .nav-dist-unit { font-size: 13px; font-weight: 700; color: ${colors.inversePrimary}; text-transform: uppercase; letter-spacing: 0; }
-              
-              .nav-street { font-size: 16px; font-weight: 650; color: ${colors.inverseOnSurface}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
-              
-              .nav-then-badge { 
-                  background: ${colors.secondaryContainer};
-                  border-radius: 12px;
-                  padding: 6px 18px; 
-                  display: inline-flex; 
-                  align-items: center; 
-                  color: ${colors.onSecondaryContainer};
-                  position: relative;
-                  margin-top: 8px;
-                  font-weight: 700; 
-                  font-size: 12px; 
-                  box-shadow: 0 6px 16px rgba(22,37,31,0.14);
-                  letter-spacing: 0;
-                  text-transform: uppercase;
-              }
-              .nav-then-icon { width: 14px; height: 14px; margin-left: 8px; fill: ${colors.onSecondaryContainer}; }
+              .nav-header { position: absolute; top: ${safeTopInset}px; left: 16px; right: 16px; display: none; flex-direction: column; z-index: 1000; font-family: FleetMap, system-ui, sans-serif; pointer-events: none; background: ${colors.surfaceContainerLow}; color: ${colors.onSurface}; border-radius: 20px; overflow: hidden; box-shadow: 0 8px 24px rgba(18,38,28,.16); border-top: 1px solid ${scheme === 'dark' ? 'rgba(255,255,255,.13)' : 'rgba(255,255,255,.95)'}; }
+              .nav-main-banner { display: flex; align-items: center; gap: 12px; padding: 12px 14px; width: 100%; }
+              .nav-icon-wrapper { width: 52px; height: 52px; border-radius: 16px; background: ${colors.primary}; color: ${colors.onPrimary}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: inset 0 1px 1px rgba(255,255,255,.15); }
+              .nav-icon { width: 32px; height: 32px; }
+              .nav-icon svg, .nav-then-icon svg { width: 100%; height: 100%; }
+              .nav-info { flex: 1; min-width: 0; }
+              .nav-dist-row { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 4px; }
+              .nav-dist { font-size: 28px; line-height: 34px; font-weight: 800; letter-spacing: -.6px; }
+              .nav-dist-unit { font-size: 13px; color: ${colors.onSurfaceVariant}; margin-right: 8px; }
+              .nav-action { font-size: 17px; line-height: 23px; font-weight: 650; color: ${colors.primary}; overflow-wrap: anywhere; }
+              .nav-street { font-size: 13px; line-height: 19px; font-weight: 500; color: ${colors.onSurfaceVariant}; overflow-wrap: anywhere; }
+              .nav-then-badge { display: none; align-items: center; gap: 7px; padding: 6px 14px 6px 78px; background: ${colors.surfaceContainer}; border-top: 1px solid ${colors.outlineVariant}55; font-size: 11px; line-height: 15px; color: ${colors.onSurfaceVariant}; }
+              .nav-then-icon { width: 14px; height: 14px; flex-shrink: 0; color: ${colors.primary}; }
+              .nav-then-text { overflow-wrap: anywhere; }
+              button.radar-marker-item, button.radar-cluster-badge { appearance: none; font-family: inherit; text-align: inherit; cursor: pointer; }
+              button.radar-marker-item { border: 0; padding: 0; background: transparent; min-height: 48px; }
+              button.radar-cluster-badge { min-width: 48px; min-height: 48px; }
+              button:focus-visible { outline: 3px solid ${colors.primary}; outline-offset: 4px; }
 
               /* Map Controls (Hidden in favor of Native controls) */
               .overview-btn { display: none !important; }
@@ -542,26 +546,27 @@ const TomTomMap = forwardRef(({
                       <div class="nav-dist-row">
                           <span id="navDistVal" class="nav-dist">--</span>
                           <span id="navDistUnit" class="nav-dist-unit">m</span>
+                          <span id="navAction" class="nav-action">Calculating directions</span>
                       </div>
-                      <div id="navStreet" class="nav-street">Calculating...</div>
+                      <div id="navStreet" class="nav-street"></div>
                   </div>
               </div>
               <div id="navThenBanner" class="nav-then-badge">
-                  Next <div id="navThenIcon" class="nav-then-icon"></div>
+                  <span>Then</span><div id="navThenIcon" class="nav-then-icon" aria-hidden="true"></div><span id="navThenText" class="nav-then-text"></span>
               </div>
           </div>
           
-          <div id="overviewBtn" class="overview-btn" onclick="window.showOverview()" style="display: none;">
+          <button type="button" id="overviewBtn" aria-label="Show route overview" class="overview-btn" onclick="window.showOverview()" style="display: none;">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="6" cy="18" r="3"/>
                   <circle cx="18" cy="6" r="3"/>
                   <path d="M6 15v-1a4 4 0 0 1 4-4h4a4 4 0 0 0 4-4V9"/>
               </svg>
-          </div>
+          </button>
           
-          <div id="recenterBtn" class="recenter-btn" onclick="window.recenterMap()">
+          <button type="button" id="recenterBtn" aria-label="Recenter map on your location" class="recenter-btn" onclick="window.recenterMap()">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
-          </div>
+          </button>
 
           <div id="etaBox" class="eta-box" style="display: none !important;">
               <div id="etaTime" class="eta-time">ETA: -- min</div>
@@ -582,6 +587,65 @@ const TomTomMap = forwardRef(({
               window.destMarker = null;
               window.ttMap = null;
               window.isFollowing = true;
+              window.__cameraMode = 'follow';
+              window.__viewportInsets = { top: 0, bottom: 0, left: 0, right: 0 };
+              window.__navigationTop = ${safeTopInset};
+              window.__navigationHeight = 0;
+              window.__reportedNavigationHeight = null;
+              // UI measurements change framing only. Route preferences, GPS and
+              // provider calculations never run through this bridge.
+              window.__cameraPadding = function() {
+                  const inset = window.__viewportInsets;
+                  const container = window.ttMap && window.ttMap.getContainer ? window.ttMap.getContainer() : null;
+                  const width = (container && container.clientWidth) || window.innerWidth || 390;
+                  const height = (container && container.clientHeight) || window.innerHeight || 800;
+                  let top = Math.max(inset.top, window.__navigationHeight ? window.__navigationTop + window.__navigationHeight + 12 : 0) + 24;
+                  let bottom = inset.bottom + 24;
+                  let left = inset.left + 24;
+                  let right = inset.right + 24;
+                  // Keep a usable map center even when large text/sheets leave
+                  // less space than the requested clearance.
+                  const vertical = Math.min(1, Math.max(0, height - 80) / (top + bottom));
+                  const horizontal = Math.min(1, Math.max(0, width - 80) / (left + right));
+                  return { top: top * vertical, bottom: bottom * vertical, left: left * horizontal, right: right * horizontal };
+              };
+              window.__applyViewportCamera = function() {
+                  if (!window.ttMap || !window.__mapActive) return;
+                  if (window.__cameraMode === 'overview' && window.showOverview) window.showOverview();
+                  else if (window.isFollowing) {
+                      if (${safeRadarMode} && window.recenterRadar) window.recenterRadar();
+                      else if (window.recenterMap) window.recenterMap();
+                  }
+              };
+              window.__setViewportInsets = function(insets, top) {
+                  const next = {};
+                  ['top', 'bottom', 'left', 'right'].forEach(function(edge) {
+                      next[edge] = typeof insets[edge] === 'number' && Number.isFinite(insets[edge]) ? Math.min(10000, Math.max(0, insets[edge])) : 0;
+                  });
+                  const navigationTop = typeof top === 'number' && Number.isFinite(top) ? Math.min(300, Math.max(0, top)) : 36;
+                  const changed = JSON.stringify(next) !== JSON.stringify(window.__viewportInsets) || navigationTop !== window.__navigationTop;
+                  window.__viewportInsets = next;
+                  window.__navigationTop = navigationTop;
+                  const header = document.getElementById('navHeader');
+                  if (header) header.style.top = navigationTop + 'px';
+                  if (changed) window.__applyViewportCamera();
+              };
+              window.__reportNavigationLayout = function() {
+                  const header = document.getElementById('navHeader');
+                  const height = header && header.style.display !== 'none' ? Math.ceil(header.getBoundingClientRect().height) : 0;
+                  if (height === window.__reportedNavigationHeight) return;
+                  const changed = height !== window.__navigationHeight;
+                  window.__navigationHeight = height;
+                  window.__reportedNavigationHeight = height;
+                  if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'NAVIGATION_LAYOUT', height: height }));
+                  if (changed) window.__applyViewportCamera();
+              };
+              window.__setMapFonts = function(css) {
+                  const style = document.getElementById('fleetMapFonts');
+                  if (!style || typeof css !== 'string' || style.textContent === css) return;
+                  style.textContent = css;
+                  if (document.fonts && document.fonts.ready) document.fonts.ready.then(window.__reportNavigationLayout);
+              };
               
 
 
@@ -641,11 +705,11 @@ const TomTomMap = forwardRef(({
                   const map = window.ttMap;
                   if (!map || !window.originMarker) return;
                   window.isFollowing = true;
+                  window.__cameraMode = 'follow';
                   const center = window.originMarker.getLngLat();
                   const bounds = new tt.LngLatBounds();
                   window.createGeoJsonCircle(center.lng, center.lat, window.currentRadarKm * 1000).geometry.coordinates[0].forEach(p => bounds.extend(p));
-                  const height = map.getContainer().clientHeight;
-                  map.fitBounds(bounds, { padding: { top: height * .22, bottom: height * .32, left: 54, right: 54 }, bearing: 0, pitch: 0, duration: 0 });
+                  map.fitBounds(bounds, { padding: window.__cameraPadding(), bearing: 0, pitch: 0, duration: 0 });
                   window.currentRadarZoom = map.getZoom();
                   window.updateRadarBloomScale();
               };
@@ -683,12 +747,14 @@ const TomTomMap = forwardRef(({
                       window.__fleetAnimId = 0;
                   }
                   if (!wasActive && window.__mapActive) window.__refreshOnNextFix = true;
+                  if (!wasActive && window.__mapActive && window.__applyViewportCamera) window.__applyViewportCamera();
               };
               window.__setLocationFresh = function(fresh) {
                   window.__locationFresh = fresh === true;
                   if (!window.__locationFresh) {
                       const header = document.getElementById('navHeader');
                       if (header) header.style.display = 'none';
+                      if (window.__reportNavigationLayout) window.__reportNavigationLayout();
                   }
                   if (window.__locationFresh && window.__refreshOnNextFix && window.__refreshRouteIfNeeded && window.__refreshRouteIfNeeded()) window.__refreshOnNextFix = false;
               };
@@ -760,11 +826,17 @@ const TomTomMap = forwardRef(({
               window.__updateFleetPositions = function(lat, lng, heading, responders, observedAt) {
                   if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) return;
                   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+                  const capturedAt = observedAt === undefined ? Date.now() : observedAt;
+                  if (typeof capturedAt !== 'number' || !Number.isFinite(capturedAt) || capturedAt <= 0 || capturedAt > Date.now() + 30000) return;
+                  const previousAt = window.currentFixObservedAt;
+                  const validPreviousAt = typeof previousAt === 'number' && Number.isFinite(previousAt) && previousAt > 0 && previousAt <= Date.now() + 30000;
+                  if (validPreviousAt && capturedAt < previousAt) return;
                   const h = (typeof heading === 'number' && isFinite(heading)) ? heading : (window.lastHeading || 0);
                   window.lastHeading = h;
                   window.currentCarLng = lng;
                   window.currentCarLat = lat;
-                  window.currentFixObservedAt = observedAt === undefined ? Date.now() : observedAt;
+                  window.currentFixObservedAt = capturedAt;
+                  window.__observedFix = { lng: lng, lat: lat, observedAt: capturedAt };
                   if (window.__mapActive && window.__refreshOnNextFix && window.__refreshRouteIfNeeded && window.__refreshRouteIfNeeded()) window.__refreshOnNextFix = false;
 
                   let finalLng = lng;
@@ -780,7 +852,8 @@ const TomTomMap = forwardRef(({
                       } catch (e) {}
                   }
                   if (window.updateNavigationBanner) {
-                      try { window.updateNavigationBanner(finalLng, finalLat, snap); } catch (e) {}
+                      // Arrival uses the observed fix, never the road-snapped car.
+                      try { window.updateNavigationBanner(lng, lat, snap); } catch (e) {}
                   }
                   if (window.updateCarRotation) {
                       try { window.updateCarRotation(); } catch (e) {}
@@ -836,6 +909,7 @@ const TomTomMap = forwardRef(({
                               zoom: isRadar ? (window.currentRadarZoom || 14.2) : 18.5,
                               pitch: 0,
                               bearing: isRadar ? 0 : routeBearing,
+                              padding: window.__cameraPadding(),
                               duration: 1200
                           });
                       }
@@ -902,6 +976,12 @@ const TomTomMap = forwardRef(({
                   return '●';
               }
 
+              // Native buttons keep Enter/Space activation. Only activation
+              // keys stop at a button, leaving Escape and map gestures alone.
+              window.__mapButtonKeydown = function(event) {
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+              };
+
               window.renderRadarMarkers = function(markers, selectedKm) {
                   if (!window.ttMap || !Array.isArray(markers)) return;
                   window.currentMarkersData = markers;
@@ -950,15 +1030,21 @@ const TomTomMap = forwardRef(({
                           const avgLat = group.reduce((s, g) => s + g.lat, 0) / group.length;
                           const avgLng = group.reduce((s, g) => s + g.lng, 0) / group.length;
 
-                          const clusterEl = document.createElement('div');
+                          const clusterEl = document.createElement('button');
+                          clusterEl.type = 'button';
                           clusterEl.className = 'radar-cluster-badge';
                           clusterEl.innerText = group.length;
                           clusterEl.title = group.length + ' nearby dispatches';
+                          clusterEl.setAttribute('aria-label', 'Zoom in to ' + group.length + ' nearby dispatches');
+                          clusterEl.onkeydown = window.__mapButtonKeydown;
                           clusterEl.onclick = function(e) {
                               e.stopPropagation();
+                              window.isFollowing = false;
+                              window.__cameraMode = 'manual';
                               window.ttMap.flyTo({
                                   center: [avgLng, avgLat],
                                   zoom: Math.min(window.ttMap.getZoom() + 2, 17.5),
+                                   padding: window.__cameraPadding(),
                                   duration: 600
                               });
                           };
@@ -982,7 +1068,10 @@ const TomTomMap = forwardRef(({
                                               ? 'priority-alert'
                                               : 'priority-normal';
 
-                          const markerEl = document.createElement('div');
+                          const markerEl = document.createElement('button');
+                          markerEl.type = 'button';
+                          markerEl.setAttribute('aria-label', 'Open ' + (m.title || 'assignment') + (m.distanceKm != null ? ', ' + m.distanceKm + ' kilometers straight-line distance' : ''));
+                          markerEl.onkeydown = window.__mapButtonKeydown;
                           markerEl.className = 'radar-marker-item ' + priorityClass;
                           
                           const iconWrap = document.createElement('div');
@@ -1056,6 +1145,7 @@ const TomTomMap = forwardRef(({
 
               window.showOverview = function() {
                   window.isFollowing = false;
+                  window.__cameraMode = 'overview';
                   document.getElementById('recenterBtn').style.display = 'flex';
                   
                   if (window.routeCoords && window.routeCoords.length > 0) {
@@ -1065,7 +1155,7 @@ const TomTomMap = forwardRef(({
                           const lat = Array.isArray(coord) ? coord[1] : (coord.lat !== undefined ? coord.lat : coord.latitude);
                           bounds.extend([lng, lat]);
                       });
-                      window.ttMap.fitBounds(bounds, { padding: 50, pitch: 0, bearing: 0, duration: 800 });
+                      window.ttMap.fitBounds(bounds, { padding: window.__cameraPadding(), pitch: 0, bearing: 0, duration: 800 });
                   }
               };
 
@@ -1136,33 +1226,38 @@ const TomTomMap = forwardRef(({
 
               window.recenterMap = function() {
                   window.isFollowing = true;
+                  window.__cameraMode = 'follow';
                   document.getElementById('recenterBtn').style.display = 'none';
                   
-                  if (window.currentCarLng && window.currentCarLat) {
+                  if (window.ttMap && window.currentCarLng != null && window.currentCarLat != null) {
                       const routeBearing = window.getRouteBearing(window.currentCarLng, window.currentCarLat);
                       window.ttMap.flyTo({ 
                           center: [window.currentCarLng, window.currentCarLat], 
                           zoom: 18.5, 
                           pitch: 0, 
                           bearing: routeBearing,
+                           padding: window.__cameraPadding(),
                           duration: 800 
                       });
                   }
               };
               
               const icons = {
-                  LEFT: '<svg viewBox="0 0 24 24"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>',
-                  RIGHT: '<svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>',
-                  STRAIGHT: '<svg viewBox="0 0 24 24"><path d="M12 4l-7 7h4v9h6v-9h4z"/></svg>',
+                  LEFT: '<svg aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M24 27V18a7 7 0 0 0-7-7H6M12 5l-6 6 6 6" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                  RIGHT: '<svg aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M8 27V18a7 7 0 0 1 7-7h11M20 5l6 6-6 6" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                  STRAIGHT: '<svg aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M16 27V5M8 13l8-8 8 8" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                  UNKNOWN: '<svg aria-hidden="true" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="11" stroke="currentColor" stroke-width="3"/><path d="M16 15v8M16 9v1" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>',
                   ARRIVE: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>'
               };
 
               window.getManeuverIcon = function(maneuver) {
-                  if (!maneuver) return icons.STRAIGHT;
-                  if (maneuver.includes('LEFT')) return icons.LEFT;
-                  if (maneuver.includes('RIGHT')) return icons.RIGHT;
-                  if (maneuver.includes('ARRIVE')) return icons.ARRIVE;
-                  return icons.STRAIGHT;
+                  const code = typeof maneuver === 'string' ? maneuver.toUpperCase() : '';
+                  if (code.includes('ARRIVE')) return icons.ARRIVE;
+                  if (code.includes('ROUNDABOUT') || code.includes('UTURN')) return icons.UNKNOWN;
+                  if (code.includes('LEFT')) return icons.LEFT;
+                  if (code.includes('RIGHT')) return icons.RIGHT;
+                  if (code.includes('STRAIGHT') || code === 'DEPART') return icons.STRAIGHT;
+                  return icons.UNKNOWN;
               };
 
               window.getSnappedPosition = function(lng, lat) {
@@ -1232,10 +1327,15 @@ const TomTomMap = forwardRef(({
                   if (${safeShowCarIcon} && (window.__locationFresh === false || typeof observedAt !== 'number' || !Number.isFinite(observedAt) || observedAt > Date.now() + 30000 || Date.now() - observedAt > 90000)) {
                       const header = document.getElementById('navHeader');
                       if (header) header.style.display = 'none';
+                      if (window.__reportNavigationLayout) window.__reportNavigationLayout();
                       window.offRouteCount = 0;
                       return;
                   }
-                  if (!window.routeInstructions || !window.routeCoords || window.routeCoords.length === 0) return;
+                  if (!window.routeCoords || window.routeCoords.length === 0) {
+                      document.getElementById('navHeader').style.display = 'none';
+                      if (window.__reportNavigationLayout) window.__reportNavigationLayout();
+                      return;
+                  }
                   
                   function getDist(lat1, lon1, lat2, lon2) {
                       const R = 6371e3;
@@ -1246,6 +1346,28 @@ const TomTomMap = forwardRef(({
                       const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
                       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
                       return R * c;
+                  }
+
+                  const validTarget = typeof window.currentDestLat === 'number' && Number.isFinite(window.currentDestLat) && typeof window.currentDestLng === 'number' && Number.isFinite(window.currentDestLng);
+                  const observed = window.__observedFix;
+                  const actualLng = observed && observed.observedAt === observedAt ? observed.lng : carLng;
+                  const actualLat = observed && observed.observedAt === observedAt ? observed.lat : carLat;
+                  const distanceToDestination = validTarget ? getDist(actualLat, actualLng, window.currentDestLat, window.currentDestLng) : Infinity;
+                  const arrived = distanceToDestination < 50;
+                  const navHeader = document.getElementById('navHeader');
+                  const paintNeutral = function(action, icon) {
+                      document.getElementById('navAction').innerText = action;
+                      document.getElementById('navStreet').innerText = '';
+                      document.getElementById('navDistVal').innerText = '';
+                      document.getElementById('navDistUnit').innerText = '';
+                      document.getElementById('navIcon').innerHTML = window.getManeuverIcon(icon);
+                      document.getElementById('navThenBanner').style.display = 'none';
+                      navHeader.style.display = 'flex';
+                      if (window.__reportNavigationLayout) window.__reportNavigationLayout();
+                  };
+                  if (arrived) {
+                      paintNeutral('Arrived', 'ARRIVE');
+                      return;
                   }
 
                   let minDist = snapInfo ? snapInfo.minDist : 0;
@@ -1260,17 +1382,18 @@ const TomTomMap = forwardRef(({
                   // Auto-Rerouting: a single noisy fix must not trigger a full
                   // recalculation (urban-canyon jitter easily reads >50m off).
                   // Require two consecutive off-route fixes first.
-                  if (minDist > 50 && window.currentDestLng && window.__mapActive) {
+                  if (minDist > 50 && validTarget && window.__mapActive) {
                       window.offRouteCount = (window.offRouteCount || 0) + 1;
                       if (window.offRouteCount >= 2) {
                           window.offRouteCount = 0;
                           window.recalculateRoute(carLng, carLat);
                       }
-                      return; // Hold the banner while the off-route state is unconfirmed
+                      paintNeutral('Updating directions', null);
+                      return;
                   }
                   window.offRouteCount = 0;
                   
-                  // 2. Precompute exact segment distances for 100% accuracy
+                  // Cache cumulative route distances for the next maneuver.
                   if (!window.cumDist) {
                       window.cumDist = [0];
                       for (let i = 1; i < window.routeCoords.length; i++) {
@@ -1287,16 +1410,30 @@ const TomTomMap = forwardRef(({
                   const carOffset = window.cumDist[closestIdx];
                   
                   // Find instructions that are strictly AHEAD of the car (tolerance of 15m so we drop them right as we turn)
-                  const upcoming = window.routeInstructions.filter(inst => {
+                  const upcoming = (Array.isArray(window.routeInstructions) ? window.routeInstructions : []).filter(inst => {
+                      if (!inst || typeof inst !== 'object') return false;
                       const instOffset = inst.routeOffsetInMeters !== undefined ? inst.routeOffsetInMeters : window.cumDist[inst.pointIndex];
                       return instOffset > carOffset + 15;
                   });
-                  
-                  const navHeader = document.getElementById('navHeader');
+                  const isArrivalInstruction = function(inst) {
+                      return typeof inst.maneuver === 'string' && inst.maneuver.toUpperCase().includes('ARRIVE');
+                  };
+                  const instructionText = function(inst) {
+                      let text = typeof inst.message === 'string' ? inst.message.trim() : '';
+                      const street = typeof inst.street === 'string' ? inst.street.trim() : '';
+                      // Keep provider wording (including unfamiliar maneuvers),
+                      // removing only a matching trailing road for its own line.
+                      if (street && text.endsWith(street)) text = text.slice(0, -street.length).replace(/\\s+(onto|on|toward|towards)\\s*$/i, '').trim();
+                      return text || 'Follow route guidance';
+                  };
                   
                   if (upcoming.length > 0) {
                       const nextInst = upcoming[0];
                       const thenInst = upcoming[1];
+                      if (isArrivalInstruction(nextInst)) {
+                          paintNeutral('Continue to destination', null);
+                          return;
+                      }
                       
                       navHeader.style.display = 'flex';
                       
@@ -1323,32 +1460,22 @@ const TomTomMap = forwardRef(({
                       document.getElementById('navDistVal').innerText = distVal;
                       document.getElementById('navDistUnit').innerText = distUnit;
                       
-                      let action = nextInst.message || "Continue";
-                      if (nextInst.street && !action.includes(nextInst.street)) {
-                          action += " onto " + nextInst.street;
-                      }
-                      document.getElementById('navStreet').innerText = action;
+                      document.getElementById('navAction').innerText = instructionText(nextInst);
+                      document.getElementById('navStreet').innerText = typeof nextInst.street === 'string' ? nextInst.street : '';
                       document.getElementById('navIcon').innerHTML = window.getManeuverIcon(nextInst.maneuver);
                       
                       const thenBanner = document.getElementById('navThenBanner');
-                      if (thenInst) {
+                      if (thenInst && !isArrivalInstruction(thenInst)) {
                           thenBanner.style.display = 'inline-flex';
                           document.getElementById('navThenIcon').innerHTML = window.getManeuverIcon(thenInst.maneuver);
+                          document.getElementById('navThenText').innerText = instructionText(thenInst);
                       } else {
                           thenBanner.style.display = 'none';
                       }
                   } else {
-                      if (minDist < 50) {
-                          document.getElementById('navStreet').innerText = "Arrived";
-                          document.getElementById('navDistVal').innerText = "";
-                          document.getElementById('navDistUnit').innerText = "";
-                          document.getElementById('navIcon').innerHTML = window.getManeuverIcon("ARRIVE");
-                          document.getElementById('navThenBanner').style.display = 'none';
-                          navHeader.style.display = 'flex';
-                      } else {
-                          navHeader.style.display = 'none';
-                      }
+                      paintNeutral(window.routeInstructions && window.routeInstructions.length ? 'Continue to destination' : 'Directions unavailable', null);
                   }
+                  if (window.__reportNavigationLayout) window.__reportNavigationLayout();
               };
 
               async function initMap() {
@@ -1405,7 +1532,8 @@ const TomTomMap = forwardRef(({
                   window.currentDestLng = hasDestination ? Number(destLng) : null;
                   window.currentCarLat = hasOrigin ? Number(originLat) : null;
                   window.currentCarLng = hasOrigin ? Number(originLng) : null;
-                  window.currentFixObservedAt = ${serializeInlineScriptValue(safeObservedAt)};
+                  const bootstrapObservedAt = ${serializeInlineScriptValue(safeObservedAt)};
+                  window.currentFixObservedAt = typeof bootstrapObservedAt === 'number' && Number.isFinite(bootstrapObservedAt) && bootstrapObservedAt > 0 && bootstrapObservedAt <= Date.now() + 30000 ? bootstrapObservedAt : null;
 
                   const map = tt.map({
                       key: ${tomtomKeyJs},
@@ -1468,6 +1596,7 @@ const TomTomMap = forwardRef(({
                         document.body.classList.add('map-interacting');
                         if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
                         window.isFollowing = false;
+                        window.__cameraMode = 'manual';
                         if (window.ReactNativeWebView) {
                             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_DRAGGED' }));
                         }
@@ -1501,7 +1630,7 @@ const TomTomMap = forwardRef(({
                         map.setBearing(${safeOriginHeading ?? 0});
                         if (destLat !== null && destLng !== null && originLat !== null && originLng !== null) {
                             document.getElementById('navHeader').style.display = 'flex';
-                            document.getElementById('navStreet').innerText = "Calculating route...";
+                            document.getElementById('navAction').innerText = "Calculating directions";
                         } else {
                             document.getElementById('navHeader').style.display = 'none';
                         }
@@ -1520,6 +1649,17 @@ const TomTomMap = forwardRef(({
                         } catch (e) {}
                         try {
                             window.applyFleetMapTheme();
+                        } catch (e) {}
+                        try {
+                            if (typeof ResizeObserver !== 'undefined') {
+                                window.__navigationObserver = new ResizeObserver(window.__reportNavigationLayout);
+                                window.__navigationObserver.observe(document.getElementById('navHeader'));
+                            }
+                            window.addEventListener('resize', function() {
+                                window.__reportNavigationLayout();
+                                window.__applyViewportCamera();
+                            });
+                            window.__reportNavigationLayout();
                         } catch (e) {}
 
                         if (${safeRadarMode} && hasOrigin) {
@@ -1626,7 +1766,7 @@ const TomTomMap = forwardRef(({
                       const initialBounds = new tt.LngLatBounds();
                       initialBounds.extend([originLng, originLat]);
                       initialBounds.extend([destLng, destLat]);
-                      map.fitBounds(initialBounds, { padding: 40, duration: 400 });
+                      map.fitBounds(initialBounds, { padding: window.__cameraPadding(), duration: 400 });
 
                       // Initial and refreshed routes share one provider controller.
                           window.buildTrafficSegments = (feature, route, isAltRoute) => {
@@ -1729,9 +1869,11 @@ const TomTomMap = forwardRef(({
                           if (!ok) return;
                           var bounds = new tt.LngLatBounds();
                           window.routeCoords.forEach(function (coord) { bounds.extend(coord); });
-                          map.fitBounds(bounds, { padding: 50, duration: 1200 });
+                          // A late provider response must not reclaim a camera
+                          // the driver moved while the route was loading.
+                          if (window.__cameraMode !== 'manual') map.fitBounds(bounds, { padding: window.__cameraPadding(), duration: 1200 });
                           if (window.fleetRouteConfig.traffic) window.swoopTimeout = setTimeout(function () {
-                              if (window.isFollowing) map.flyTo({ center: [window.currentCarLng, window.currentCarLat], zoom: 18.5, pitch: 0, speed: 0.8 });
+                              if (window.isFollowing) map.flyTo({ center: [window.currentCarLng, window.currentCarLat], zoom: 18.5, pitch: 0, padding: window.__cameraPadding(), speed: 0.8 });
                           }, 5000);
                       });
                       else window.__refreshOnNextFix = true;
@@ -1789,7 +1931,6 @@ const TomTomMap = forwardRef(({
     safeScrollEnabled,
     safeShowCarIcon,
     safeAutoSwoop,
-    safeTopInset,
     routeSessionKey,
     routeTripId,
   ]);
@@ -1854,6 +1995,8 @@ const TomTomMap = forwardRef(({
               isMapReadyRef.current = true;
               mapErrorRef.current = false;
               webViewRef.current?.injectJavaScript(buildMapActiveJs(mapActiveRef.current));
+              webViewRef.current?.injectJavaScript(latestLayoutBridgeRef.current);
+              if (cachedMapFontsCss) webViewRef.current?.injectJavaScript(`if(window.__setMapFonts) window.__setMapFonts(${serializeInlineScriptValue(cachedMapFontsCss)}); true;`);
               webViewRef.current?.injectJavaScript(`if(window.__setLocationFresh) window.__setLocationFresh(${serializeInlineScriptValue(locationFresh === true)}); true;`);
               const activeCar = cachedCarImage || carImage;
               if (activeCar && webViewRef.current) {
@@ -1867,6 +2010,9 @@ const TomTomMap = forwardRef(({
               if (onMapReady) onMapReady();
             }
             if (data.type === 'MAP_ERROR') reportMapError(data.reason);
+            if (data.type === 'NAVIGATION_LAYOUT' && typeof data.height === 'number' && Number.isFinite(data.height) && data.height >= 0 && data.height <= 10000) {
+              onNavigationLayout?.({ height: data.height });
+            }
             if (data.type === 'MARKER_TAPPED' && onMarkerPress) {
               onMarkerPress(data.marker);
             }
