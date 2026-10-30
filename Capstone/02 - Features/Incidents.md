@@ -48,6 +48,12 @@ last_verified: 2026-10-03
 
 # Feature: Incidents
 
+## Mobile incident recovery and mission binding — 2026-10-29
+
+Incident detail/navigation preserve last-known data with timestamp/error/retry and poll only while focused/foregrounded. Failed mission refresh disables responder actions, including old callbacks; an explicit successful retry restores them. mobile/lib/responder-action.js rechecks the current mission/account/session/online context immediately before arrival/resolution and requires acknowledgment. Existing arrived/resolve endpoints accept an optional expected incident_id, validate it and reject a different active assignment before mutation; older empty-body clients remain compatible. Arrival compares within its locked transaction; resolution passes the selected incident to the existing row-locked responder guard. No schema change is needed.
+
+Report location and reverse lookup waiting are bounded at10s/3s. A late native fix cannot rewrite the submitted fallback. Failed photo messages distinguish offline saved reports from server-received reports and ask for dispatch coordination without recommending a duplicate. Photo removal is named48dp and critical/result content scrolls. Tests cover real stale callbacks/retry/session changes, invalid/mismatched server identity, legacy arrival compatibility and form behavior. Operating response/GPS/device acceptance remains pending; see [[Mobile UI UX Audit 2026-10-29]].
+
 ## Guided driver severity recommendation — implemented locally 2026-10-03
 
 The typed mobile report asks four coded safety/impact questions and shows a versioned recommendation with its reason. Drivers can select any of the four existing severity values; a changed value requires a short reason, and choosing below a Critical recommendation requires an explicit recheck of immediate danger. A typed Critical report opens a native confirmation dialog. The separate SOS sender still submits direct Critical and records SOS provenance.

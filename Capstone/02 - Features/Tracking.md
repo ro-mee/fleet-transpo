@@ -3,6 +3,8 @@ type: feature
 status: working
 tags: [feature, tracking, gps, mobile]
 source:
+  - mobile/lib/trip-navigation-readiness.test.js
+  - mobile/lib/trip-location-owner.js
   - mobile/lib/tracking.js
   - mobile/lib/background-tracking.js
   - mobile/lib/gps-odometer.js
@@ -14,11 +16,23 @@ source:
   - mobile/app/(app)/(tabs)/map.js
   - mobile/components/TomTomMap.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
-last_verified: 2026-10-22
+last_verified: 2026-10-30
 related: ["[[Trips]]", "[[Mobile Architecture]]", "[[Live Map Radar]]"]
 ---
 
 # Feature: Tracking
+
+## Map navigation readiness and truthful guidance — 2026-10-30
+
+`prepareTripNavigation({tripId,leg,requestPermission})` now runs through the existing owner/native-work queue. It validates the current driver session, trip, leg and foreground operation, persists context, checks foreground/background permission and verifies native task registration. The initial check precedes the optional shortcut offer; a second nonprompting check after that asynchronous offer/Settings return prevents stale readiness from launching Maps. Only a failed readiness check leads to the explicit Continue Without Tracking choice; that path never arms the shortcut.
+
+`cancelTripNavigation` releases preparation after failed/cancelled launch for the same visible owner, following bubble removal. It cannot stop another trip or lifecycle-owned background collection. Late session/trip/leg/visibility changes invalidate preparation. `getTripTrackingStatus` and `subscribeTripTrackingStatus` expose immutable trip/leg-scoped idle/preparing/ready/paused snapshots. A genuine background-start failure remains visible after return until retry or a trip/leg change. Automatic lifecycle starts do not prompt for permission.
+
+No independent GPS starter was added. The foreground watcher continues during preflight; background deliveries are gated while foreground, and stop-before-merge plus trip-scoped stored distance remain authoritative. Native registration is readiness evidence, never proof of actual background fixes or complete mileage.
+
+Renderer arrival now uses fresh raw GPS proximity to the destination (50m), not snapped route coordinates or distance to a route line. Missing guidance remains neutral. Bootstrap and delivered timestamps reject invalid future ordering, while stale guidance stays hidden. Manual/server/geofence and Cargo progression authority are preserved.
+
+Verification includes real owner/background/odometer integration with replaced native boundaries, denied/start-failed cases, actual Map callback/Settings lifecycle, duplicate taps, stale sessions and rollback. The cached-readiness mutation reproduced both a stopped task and premature Maps launch before the correction. Final broader checks and physical GPS/permission/Maps/mileage limits are in [[Mobile Map Approved Improvements Implementation 2026-10-30]].
 
 ## Android native rebuild preparation - 2026-10-16
 

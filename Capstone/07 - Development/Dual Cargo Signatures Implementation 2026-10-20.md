@@ -7,6 +7,10 @@ related: ["[[Trips]]", "[[Mobile Architecture]]", "[[cargo_execution_storage]]",
 
 # Dual cargo signatures implementation - 2026-10-20
 
+## Reviewed handover visibility — 2026-10-29
+
+The signature modal now displays the frozen counts, conditions and remarks from signatureRequest alongside acknowledgment. Editable issue photos have local previews/removal; pending signed receipts retain immutable retry content. Receiver confirmation is a read-only state rather than a disabled imitation action, and Return to Map is explicit. Cargo lookup uses the exact trip and actor/abort options now reach api.get; errors remain visible. Signer authority, server gates, archived receipts and signature privacy are unchanged. Focused actual-component checks and combined verification are recorded in [[Mobile UI UX Audit 2026-10-29]]; native drawing/camera/user acceptance remains pending.
+
 ## Scope
 
 The owner authorized both the plan and implementation after confirming that signatures apply only to Cargo and starting/ending odometer capture applies to both Passenger and Cargo. Implementation extends the existing cargo receipt flow. It does not activate the intentionally unavailable production source, Fleet safety or receiving providers, deploy an app, change odometer/fuel transactions or write operating cargo rows. Existing uncommitted work in the shared checkout is preserved.

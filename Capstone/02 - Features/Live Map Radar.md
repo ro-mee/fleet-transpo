@@ -3,16 +3,55 @@ type: feature
 status: working
 tags: [feature, map, radar, mobile, ui, standby]
 source:
+  - mobile/lib/trip-location-owner.js
+  - mobile/lib/map-layout.js
+  - mobile/components/map/MapAssignmentNotice.jsx
+  - mobile/components/map/MapTripSummary.jsx
   - mobile/components/TomTomMap.js
   - mobile/app/(app)/(tabs)/map.js
   - mobile/components/CurvedPillTabBar.js
   - mobile/lib/ambient-weather.js
   - mobile/lib/standby-map.test.js
-last_verified: 2026-10-22
+last_verified: 2026-10-30
 related: ["[[Tracking]]", "[[Trips]]", "[[Mobile Architecture]]"]
 ---
 
 # Driver Live Map Standby
+
+## Approved Map improvements implemented — 2026-10-30
+
+The owner authorized the entire approved plan and all eight audit fixes. The canonical screen now uses a compact travelling tray, real current stop and provider ETA/distance, expandable trip facts, contextual boarding/loading/finish wording and required Cargo verification at stops. Finish still opens the existing ending-odometer form. Earlier proposal-only entries below describe earlier checkpoints.
+
+Directions now group the turn arrow, distance and action above a separate wrapping street and attached following instruction. Missing guidance stays neutral; arrival needs a fresh observed fix within50m of the target, rather than a point near the route line. Old, delayed and invalid future observations cannot establish arrival or freeze newer GPS updates.
+
+Standby status, recovery and layers share one measured scroll area. Pending work remains discoverable through View assignments even without verified pickup coordinates; missing coordinates produce no invented pins or road-arrival guesses. Layer rows are48dp with checked/expanded semantics and supported-layer-only Show all. Active notices scroll with trip information; minimizing preserves recovery and map controls above the unchanged curved navigation. Sheet height reserves measured directions and controls even on short screens. Only the handle owns the sheet drag gesture.
+
+Measured camera insets and directions height travel through a bridge without rebuilding the map or calculating a new route. Overview/recenter/follow reserve the overlays; manual panning remains manual. Map markers/clusters are named native HTML buttons with keyboard operation and a native assignment-list alternative.
+
+The single location owner confirms native background registration before Maps, rechecks after any optional shortcut/Android Settings wait and reports failures through the existing explicit untracked choice. A matching paused status provides Check tracking. Registration does not prove GPS delivery. Full evidence, review resolutions and remaining browser/device acceptance are recorded in [[Mobile Map Approved Improvements Implementation 2026-10-30]]. No Home artwork, shared clay styling or curved navigation change was made by this task.
+
+## Directions-only UI proposal — 2026-10-30
+
+Per owner clarification, refined only the directions-banner review: clearer turn glyph, grouped distance/action, separate street line and integrated next-maneuver row using existing clay/theme colors. Normal light/dark/320px browser fixtures show112px overall height (same as the old banner/Next group) and no horizontal overflow. Three browser records/captures saved. Mobile production source and routing/camera/trip workflows remain untouched. See [[Mobile Map Visibility and Driver App Study 2026-10-30#Directions-banner UI refinement — 2026-10-30]]. Native/large-text acceptance is pending.
+
+## Directions retained in the compact Map review — 2026-10-30
+
+Corrected the schematic review's omission of the existing top turn-by-turn banner. Current source-derived banner styling/icons now accompany the compact bottom tray with sample maneuver distance/street/Next instruction. The proposed camera must frame between both overlays. Healthy Cargo/Passenger and GPS-lost samples were inspected; stale sample guidance is hidden and Retry GPS remains available. This changes review fixtures/images only; provider/freshness/arrival logic and the open audit findings are untouched. See [[Mobile Map Visibility and Driver App Study 2026-10-30#Turn-by-turn directions included — 2026-10-30]].
+
+## Compact travelling Map direction — 2026-10-30
+
+The owner prefers the new trip-stage clarity but wants more visible map. A review-only compact variant retains stage/stop/ETA/next action while travelling, keeps Cargo verification at stops, and expands for detail. Browser fixture:454→166px tray height, returning to166px after collapse; four sample comparisons checked. Production must also replace fixed active-route camera padding with measured overlay clearance. Research on official Grab/inDrive/MOVE IT driver material is qualified by dates/geography; native REA was blocked by missing Android tooling/packages. No app source changed. See [[Mobile Map Visibility and Driver App Study 2026-10-30]].
+
+## Trip-cycle visual follow-up — 2026-10-30
+
+Added the missing paired views for all six Cargo and Passenger trip stages (12 images). Proposed stage/target/next-action summaries and confirmation/finish wording are review-only; real handlers and mobile source are unchanged. Actual-component browser stage/action records and screenshots were checked, including cleared old targets after simulated completion. Additional context can use more map space; density and physical-device acceptance remain open. See [[Mobile Map UI UX and Function Audit 2026-10-30#Trip-cycle visual coverage correction — 2026-10-30]] and docs/design/mobile-map-audit-2026-10-30/trip-cycle-review.md.
+
+## Focused Map audit and visual proposal — 2026-10-30
+
+The owner requested a Map-only UI/UX and function audit with paired visuals. No mobile application source was changed. The report records eight findings (two P1, six P2): missing-guidance false arrival, background-readiness handoff, straight-line arrival estimates, overlapping standby recovery/layers, small layer targets, fixed restore-control inset, undiscoverable unresolved-location assignments and map-document control semantics. Preserve the approved clay styling, Home artwork, navigation and server/manual/Cargo gates.
+
+Fresh verification: 506 mobile tests/24 files and 130 backend tests/8 files passed. Five audit probes reproduced the documented gaps; actual-component browser fixtures show current/proposed assignment and GPS/layers layouts. Proposal changes are limited to an in-memory review copy; roads/GPS/account/services use illustrative data. Native GPS/permissions/gestures/accessibility/performance and all-device/theme acceptance remain open. See [[Mobile Map UI UX and Function Audit 2026-10-30]] and docs/design/mobile-map-audit-2026-10-30/.
+
 
 ## Vehicle Marker Integration: carlive.png (2026-09-13, implemented)
 

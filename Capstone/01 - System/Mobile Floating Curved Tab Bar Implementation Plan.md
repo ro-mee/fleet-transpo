@@ -7,6 +7,24 @@ tags: [mobile, navigation, ui-ux, claymorphism, 1-to-1]
 
 # Mobile Floating Curved Pill Bottom Navigation Bar — 1:1 Implementation
 
+## More visible navigation curve — 2026-10-30
+
+At the owner's request, enlarged the restored wave from 92dp wide / 10dp rise to 112dp wide / 18dp rise. The existing light/dark assets scale proportionally in height (50.4dp) and remain tangent to the pill top. The scan button, four tab positions, 64dp bar, colors, safe-area clearance and Map behavior stay unchanged. This is a focused curve adjustment following the selected visual restoration below.
+
+Verification: all 145 navigation/coach-mark checks passed; strict component lint and whitespace checks passed. Actual-component light before/current and dark browser fixtures show the taller crest with visible labels and scanner. Saved nav-curve-enhanced.jpg under docs/design/mobile-ui-review-2026-10-30/. Physical-device appearance remains unverified.
+
+## Selected visual changes undone — 2026-10-30
+
+At the owner's explicit request, restored the pre-audit curved-wave bottom navigation, original colors/shape/scan placement, shared clay card/button shadows/highlights/radii and the Home header's avatar/bell decoration. Shared clay.js, ClayCard and ClayButton use the saved original source. The original molded engine is restored for cards/buttons/pills/tiles; input material styling remains unchanged because inputs were not selected for this rollback. Header appearance is restored while retaining the intrinsic-height fix that prevents enlarged text overlap. Canonical Map retains a compatibility height helper returning the restored64dp height. Home trip cards/CTA regain their prior curves/raised edges; the safe information foreground/background pair remains.
+
+The popup changes were not reverted. Existing input accessibility,48dp target floor, high-contrast status fixes, truthful duty, visible Incident/End Duty, preserved drafts, server acknowledgment, exact-trip Cargo/override and responder identity guards remain. Original Home images/composition and launch/branding remain intact. No operating-data, dependency, database, commit or deployment change.
+
+Verification:223 checks passed across12 focused material/navigation/Home/accessibility/alert/guide files; strict changed-file lint passed. Android Hermes export passed (1542 modules); UTF-8 and whitespace checks passed. Actual before/current browser fixtures confirmed restored curves, shadows and header decoration; captures are saved as restored-navigation.jpg, restored-controls.jpg and restored-header.jpg under docs/design/mobile-ui-review-2026-10-30/. Input's remaining flat outline/larger text is intentional in this comparison. Native-device/all-theme acceptance remains pending.
+
+## Accessible native navigation revision — 2026-10-29
+
+The approved Elevated Clean pass retains Home/Map/Trips/Profile, tabPress prevention, Map guide target/intent and the existing scan destination. The reference wave/embossed edges are retired; semantic mobile theme colors and a quiet16dp bar replace private palettes. Labels use the theme caption size, permit wrapping and have full-width bounds. getTabBarHeight reserves icon/padding/indicator plus scaled line-height (two lines for larger text); canonical Map reads the same height for its bottom clearance. Narrow/enlarged layouts place scan above the right edge, leaving four equal tab widths; scan stays absent on Map. Existing bottom safe-offset calculation is retained. Actual-component browser samples confirmed ordinary light, enlarged dark and narrow high-contrast layouts; native acceptance remains pending. See [[Mobile UI UX Audit 2026-10-29]].
+
 ## Overview
 Recreated the mobile driver app bottom navigation bar 1-to-1 matching the reference design with authentic FleetOps claymorphic depth:
 - Floating pill bar detached from screen edges with dynamic device-adaptive clearance across any phone model.

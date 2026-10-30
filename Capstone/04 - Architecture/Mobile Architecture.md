@@ -3,6 +3,10 @@ type: architecture
 title: Mobile Architecture
 tags: [architecture, mobile, expo]
 source:
+  - mobile/lib/trip-location-owner.js
+  - mobile/lib/map-layout.js
+  - mobile/components/map/MapAssignmentNotice.jsx
+  - mobile/components/map/MapTripSummary.jsx
   - mobile/app/(app)/(tabs)/_layout.js
   - mobile/app/(app)/_layout.js
   - mobile/lib/api.js
@@ -30,10 +34,44 @@ source:
   - mobile/app/(app)/(tabs)/map.js
   - mobile/lib/storage.js
   - mobile/AGENTS.md
-last_verified: 2026-10-27
+last_verified: 2026-10-30
 ---
 
 # Mobile Architecture
+
+## Approved mobile Map implementation — 2026-10-30
+
+Canonical Map composes `MapTripSummary`, `MapAssignmentNotice` and `mapSheetGeometry`; older summary components remain available to other callers. Compact and expanded views use actual assigned facts and provider route metrics, with existing server/manual/Cargo checks. Home art, shared clay components and curved navigation are preserved.
+
+The native screen measures top/standby content and sheet/controls, passes absolute `viewportInsets` to `TomTomMap`, and receives `onNavigationLayout({height})` for the actual directions height (zero when hidden). A WebView bridge updates framing without HTML reload or reroute. The renderer takes the greater parent top obstruction/directions bottom, bounds extreme insets and preserves follow/overview/manual camera ownership. Sheet bounds reserve measured directions plus control clearance; recovery scrolls inside the measured tray, except a bounded stack when minimized. The drag responder is limited to the sheet handle.
+
+Navigation preparation and cancellation remain on the app-level location owner's existing serialized queue. Readiness is revalidated after the optional shortcut/Android Settings wait before Linking; failures retain the explicit untracked choice. Trip/leg-scoped paused status is observable by Map. Existing background active-state suppression, stop-before-distance merge and session invalidation remain. No SDK/dependency or database change.
+
+Renderer behavior and camera/button semantics are covered by current generated-document tests; screen summaries/layout and actual handoff callbacks have focused coverage. Independent review resolved short-screen overlay collision, post-Settings stale readiness and cold-start future-timestamp poisoning. Final verification and unavailable browser/native acceptance are in [[Mobile Map Approved Improvements Implementation 2026-10-30]].
+
+## Selected style rollback — owner instruction, 2026-10-30
+
+Restored the original curved-wave navigation, shared clay card/button appearance and Home header decoration. Input styling/accessibility and popup changes were not selected for rollback; workflow/security/error-recovery fixes remain. This supersedes the earlier flat-navigation/material recommendations for those surfaces. Details, browser captures and final checks: [[Mobile Home Claymorphism Implementation Plan#Selected visual changes undone — 2026-10-30]].
+
+## Home visual preservation — owner correction, 2026-10-29
+
+The recent Cargo/Passenger illustrated overview is restored above assignments, using the original bundled artwork, headline/date/summary/vehicle composition, responsive geometry, loading shapes and Home-only material API. This corrects the audit implementation's unauthorized interpretation of enhancement as removal. Truthful duty is embedded in both scenes; visible Incident, independent End Duty, trip authority, contrast/input and other safety/recovery fixes remain. The older compact-only description below is superseded for Home appearance/order. Verification and browser/device limits: [[Mobile Home Claymorphism Implementation Plan#Owner correction: restore the illustrated Home — 2026-10-29]].
+
+## Mobile usability implementation — 2026-10-29
+
+The owner asked this chat to continue the interrupted mobile audit work. The existing full 17-section audit was retained and the approved plan was completed in the saved checkout, preserving earlier launch/branding edits. The current visual direction is Soft UI Evolution / Elevated Clean; this supersedes older keep-clay/illustrated-hero instructions for the touched mobile components. FleetOps forest/ivory/brass, registered fonts, four destinations and Passenger/Cargo rules remain.
+
+Home now leads with a compact confirmed/unknown duty state, urgent reports and current assignment. Incident remains among the first four shortcuts for either driver type; End Duty is independently reachable throughout confirmed duty. Counts and vehicle detail follow the work. The decorative scene/headlines and routine duplicate workspace label were removed, while mismatch/setup warnings and tutorial target identifiers remain. Loading placeholders follow the compact composition. Header stacking now keeps intrinsic height at large text.
+
+Shared inputs use a 48dp target floor, real registered fonts and native accessible names, including password visibility controls. High-contrast dark status text and upcoming labels use readable semantic pairs. Existing shared material APIs keep cached theme-key parity and legacy native fallback with quieter surfaces. Global alerts have bounded scrolling, growing/stacking actions and preserved Back/replacement/callback-once safeguards. Alerts, notifications, theme changes, radar and Map respect reduced motion.
+
+Fuel rejects blank/comma-only/invalid levels while accepting explicit zero. Session revocation, leave, phone, consent and responder transitions require server acknowledgment; failures preserve rows and drafts. License replacement stays available before expiry. Permission denial offers Settings and refreshes on return. Missing profile/incident data has persistent retry rather than a false empty/success state. Unconfigured support contacts are no longer callable.
+
+Cargo reads the exact owned trip, surfaces failed reads and shows the frozen reviewed counts/conditions beside signing. Editable photo drafts have previews/removal; signed retries remain immutable. Receiver acknowledgment is read-only status and Return to Map is explicit. Only GEOFENCE_OUTSIDE offers arrival override; override rereads current trip/profile/session and never queues dependent transitions. The obsolete vehicle and blank fuel routes redirect to canonical Map/Fuel. Shared api.get now forwards its existing options so actor binding and abort signals reach real requests.
+
+Incident reads preserve last-known facts with timestamp/retry, but stale responder actions stay disabled. Arrival/resolution reread the current mission and send the expected incident ID; existing server endpoints reject a changed assignment before writes while preserving older empty-body callers. This closes wrong-incident actions after reassignment without a schema change. Incident location/reverse lookup waiting is bounded and failed-photo guidance avoids encouraging duplicate reports.
+
+Final verification is recorded in [[Mobile UI UX Audit 2026-10-29#Implementation closeout — 2026-10-29]]. Native TalkBack/VoiceOver, camera/permissions/keyboard/Back, Maps/background GPS, outdoor readability, release performance and installed launch/icon/audio acceptance still require physical devices. Browser evidence uses actual components with mocked native/API boundaries, not an authenticated operating trip. No database, dependency/SDK upgrade, deployment, push or commit was made.
 
 ## Internal Cargo local test stack - 2026-10-27
 
@@ -489,7 +527,17 @@ The existing global poster now owns foreground standby publication as well as tr
 Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]]. Full suite: 1,140 passing tests; later focused checks: 37 passing tests; web build, Android export, route-auth audit and migration/query verification passed.
 
 
-## FleetOps route-ribbon identity and launch - 2026-10-21
+## Hotel Route identity and launch - 2026-10-28
+
+The shared identity uses the selected hotel-shaped F and curved access road. Normal themes now package approved reference pixels: light 312 x 648 and dark 312 x 630, with aspect ratio preserved by LaunchScreen. Each local 60 fps Lottie animates transparent source-textured road/hotel/letter layers, then crossfades to the untouched full plate at 1.30–1.50 seconds. Shared mark/wordmark images retain the source texture; History, Fuel Report and End Duty use the same Logo as other brand surfaces. High contrast retains plain 360 x 640 vector compositions. The launch tagline is removed. Provenance and acceptance evidence: [[FleetOps Mobile Identity#Reference artwork fidelity follow-up - 2026-10-28]].
+
+`LaunchScreen` starts native playback only from `onAnimationLoaded`, then enables the preloaded local sound. The load must arrive within 150 ms of component mount; a timed guard and an in-callback wall-clock check select the final static image on a slow/missing load. This prevents starting an animation whose final hold would fall beyond startup's deadline. `use-launch-sequence.js` now owns only preference resolution, static/error fallback, completion and exit, retaining the 1,900 ms exit and 180 ms fade. The composed letter drops start at 600 ms + 75 ms per letter and settle after 180 ms; sound accents align to landings at 780–1,305 ms. The image and audio sources are local, non-looping and independent of network availability.
+
+`use-launch-audio.js` uses SDK 54-compatible expo-audio 1.1.1 with a 180 ms readiness deadline and elapsed-time seek; late/failed setup is silent. It respects iOS silent mode, mixes with other sound, never records or plays in background, stops on disable/background/unmount and never replays. Missing audio in an older native binary is caught. A rebuild is required for the module and updated installed icons/splash. The native splash remains a square mark because Expo's Android generator uses square fitting.
+
+Provider/font/settings/auth gates, native-splash handoff, mounted navigator, touch/accessibility barrier and deferred push initialization remain unchanged. The earlier full mobile suite passed 122 files / 1,523 tests. Final reference checks passed 49 launch/audio/brand tests plus eight integration/onboarding tests, strict touched lint and reproducibility of 38 generated files. Both final PNGs and embedded final Lottie plates preserve every source RGB sample. Final Android Hermes export passed: 1,541 modules, 6.5 MB, 103 assets. Generate assets before exporting, not concurrently. Browser review covered final/intermediate frames and compact logos in both themes. Physical-device timing, sound, accessibility and installed splash/icon checks remain unverified. Exact stored source pixels do not establish identical scaled GPU screenshots or every unspecified in-between animation frame.
+
+## FleetOps route-ribbon identity and launch - 2026-10-21 (superseded)
 
 The custom three-road-ribbon mark and brass connection point replace the car badge and car/compass startup. Shared static/vector assets and four local Lottie variants cover light, dark and monochrome high contrast. Login, onboarding, About, Map brand headers and a small Home signature use the same identity. Password recovery security symbols and operational map car icons remain unchanged. Full asset inventory, rationale and generation instructions: [[FleetOps Mobile Identity]].
 
