@@ -418,7 +418,7 @@ export default function IncidentReportForm({ values, actions, scrollRef, styles:
               {photos.map((photo, index) => (
                 <View key={index} style={{ position: 'relative' }}>
                   <Image source={{ uri: photo.uri }} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerHighest }} />
-                  <Pressable onPress={() => removePhoto(index)} style={{ position: 'absolute', top: -8, right: -8, backgroundColor: colors.error, borderRadius: 12, padding: 4, zIndex: 10 }}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove incident photo ${index + 1}`} onPress={() => removePhoto(index)} style={{ position: 'absolute', top: -8, right: -8, backgroundColor: colors.error, borderRadius: 24, width: 48, height: 48, alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
                     <Ionicons name="close" size={16} color={colors.onError} />
                   </Pressable>
                 </View>

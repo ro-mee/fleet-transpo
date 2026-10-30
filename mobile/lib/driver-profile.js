@@ -24,6 +24,7 @@ export function useDriverProfile({ onError } = {}) {
   const key = driverId == null ? null : String(driverId);
   const initial = memByDriver.get(key);
   const [entry, setEntry] = useState(initial ? { ...initial, key } : null);
+  const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(initial?.profile == null);
   const onErrorRef = useRef(onError);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
@@ -65,9 +66,10 @@ export function useDriverProfile({ onError } = {}) {
     flightByDriver.set(key, { session, promise: flight });
     try {
       const live = await flight;
-      if (current() && live) setEntry({ ...live, key });
+      if (current() && live) { setEntry({ ...live, key }); setLoadError(null); return live.profile; }
     } catch (error) {
       if (!current()) return;
+      setLoadError({ key, message: error?.message || "Could not refresh profile. Check your connection and retry." });
       const saved = memByDriver.get(key);
       if (saved) {
         const unconfirmed = { ...saved, session: null };
@@ -86,5 +88,5 @@ export function useDriverProfile({ onError } = {}) {
     return () => clearTimeout(timer);
   }, [load]);
   const reload = useCallback(() => load({ force: true }), [load]);
-  return { profile, loading, reload, serverConfirmed };
+  return { profile, loading, reload, serverConfirmed, error: loadError?.key === key ? loadError.message : null };
 }

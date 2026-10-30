@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useLayoutEffect, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import TomTomMap from "../../../components/TomTomMap";
+import { useAuth } from '../../../lib/auth';
+import { useConnectivity } from '../../../lib/connectivity-context';
+import { runResponderAction } from '../../../lib/responder-action';
 import { api } from "../../../lib/api";
 import { fonts } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
@@ -47,11 +50,22 @@ function formatEta(value) {
 
 export default function RescueNavigationScreen() {
   const { id } = useLocalSearchParams();
+  const { user } = useAuth();
+  const { status: connection } = useConnectivity();
+  const routeContext = useRef(null), readAuthority = useRef(null), responderBusy = useRef(false);
+  useLayoutEffect(() => {
+    routeContext.current = `${user?.employeeId}:${id}:${connection}`;
+    return () => { routeContext.current = null; readAuthority.current = null; };
+  }, [user?.employeeId, id, connection]);
+  const currentMission = () => connection === 'online' && routeContext.current === `${user?.employeeId}:${id}:${connection}` && readAuthority.current === routeContext.current;
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
 
+  const [loadError, setLoadError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [mission, setMission] = useState(null);
   const [missionMissing, setMissionMissing] = useState(false);
   const [ownLocation, setOwnLocation] = useState(null);
@@ -94,11 +108,17 @@ export default function RescueNavigationScreen() {
   // navigation target; falls back to the report-time coordinates if their
   // phone went quiet.
   const loadMission = useCallback(async () => {
+    const context = routeContext.current;
+    readAuthority.current = null;
     try {
       const missions = await api.get("/api/driver/incidents?role=responder");
+      if (routeContext.current !== context) return;
       const found = Array.isArray(missions)
         ? missions.find((m) => String(m.incident_id) === String(id))
         : null;
+      readAuthority.current = context;
+      setLoadError(null);
+      setLastUpdated(new Date().toISOString());
       setMission(found || null);
       setMissionMissing(!found);
       if (!found) return;
@@ -112,20 +132,18 @@ export default function RescueNavigationScreen() {
         setBakedDest(next);
       }
     } catch (e) {
-      console.warn("Could not load rescue mission", e);
+      if (routeContext.current !== context) return;
+      setLoadError(e?.message || "Could not refresh the mission. Check your connection and retry.");
     }
   }, [id]);
 
-  useEffect(() => {
-    // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
-    const t = setTimeout(loadMission, 0);
-    return () => clearTimeout(t);
-  }, [loadMission]);
-
-  useEffect(() => {
-    const t = setInterval(loadMission, 30000);
-    return () => clearInterval(t);
-  }, [loadMission]);
+  useFocusEffect(useCallback(() => {
+    const refresh = () => { if (AppState.currentState === "active") loadMission(); };
+    const first = setTimeout(refresh, 0);
+    const poll = setInterval(refresh, 30000);
+    const subscription = AppState.addEventListener("change", next => { if (next === "active") loadMission(); });
+    return () => { clearTimeout(first); clearInterval(poll); subscription.remove(); };
+  }, [loadMission]));
 
   // Own position pipeline (the Map tab's approach): permission → highest-
   // accuracy fix → live watch. GPS course-over-ground steers the car marker
@@ -221,13 +239,17 @@ export default function RescueNavigationScreen() {
 
   // Manual arrival fallback — same endpoint the mission screen uses.
   const markArrived = async () => {
+    if (responderBusy.current) return;
+    responderBusy.current = true;
     try {
       setArriving(true);
-      await api.post("/api/driver/responder/arrived");
+      const result = await runResponderAction({ incidentId: id, actorId: user?.employeeId, action: "arrived", isCurrent: currentMission });
+      if (result?.queued) throw new Error("Arrival was not confirmed. Please retry when connected.");
       await loadMission();
     } catch (e) {
       AppAlert.alert("Could not confirm arrival", e?.message || "Please try again.");
     } finally {
+      responderBusy.current = false;
       setArriving(false);
     }
   };
@@ -245,7 +267,7 @@ export default function RescueNavigationScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={[styles.topBar, { backgroundColor: colors.surface, paddingTop: insets.top }]}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
@@ -258,6 +280,8 @@ export default function RescueNavigationScreen() {
         </View>
       </View>
 
+      {loadError ? <View style={{ padding: 16, gap: 8 }}><Text accessibilityLiveRegion="polite" style={{ color: colors.error }}>{mission ? "Showing last known mission. " : "Mission unavailable. "}{loadError}</Text><ClayButton label="Retry mission" variant="tonal" onPress={loadMission} /></View> : null}
+      {lastUpdated ? <Text style={{ color: colors.onSurfaceVariant, paddingHorizontal: 16 }}>Last updated {new Date(lastUpdated).toLocaleTimeString()}</Text> : null}
       {permissionDenied ? (
         <View style={styles.centerBox}>
           <ClayTile icon="location-outline" size={56} variant="surface" style={{ marginBottom: 8 }} />
@@ -295,7 +319,7 @@ export default function RescueNavigationScreen() {
             style={{ minWidth: 200, marginTop: 12 }}
           />
         </View>
-      ) : !mission ? (
+      ) : !mission && loadError ? null : !mission ? (
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>Loading mission…</Text>
@@ -400,7 +424,7 @@ export default function RescueNavigationScreen() {
                 icon="checkmark-circle"
                 variant="primary"
                 loading={arriving}
-                disabled={arriving}
+                disabled={arriving || !!loadError || connection !== "online"}
                 onPress={markArrived}
                 accessibilityLabel="Confirm you have arrived"
               />

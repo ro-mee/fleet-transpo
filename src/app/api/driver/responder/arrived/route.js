@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
+import { requireDriver, parseOptionalBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
 import { helpArrived } from "@/lib/notifications/copy";
@@ -19,6 +19,11 @@ export async function POST(req) {
     const session = await requireDriver(req);
     const driverId = session.user.driverId;
     const employeeId = session.user.employeeId ?? null;
+    const body = await parseOptionalBody(req);
+    const expectedIncidentId = body?.incident_id;
+    if (expectedIncidentId != null && (!Number.isSafeInteger(Number(expectedIncidentId)) || Number(expectedIncidentId) <= 0)) {
+      return errValidation({ incident_id: "A valid incident reference is required" });
+    }
 
     const result = await withTransaction(async (tx) => {
       const { rows } = await tx.query(
@@ -42,6 +47,7 @@ export async function POST(req) {
       );
       const row = rows[0];
       if (!row) return { notFound: true };
+      if (expectedIncidentId != null && String(row.incident_id) !== String(expectedIncidentId)) return { changed: true };
       if (row.response_status === "Arrived") return { unchanged: true, incidentId: row.incident_id };
 
       const { rows: updated } = await tx.query(
@@ -70,6 +76,7 @@ export async function POST(req) {
       };
     });
 
+    if (result.changed) return err("Your responder assignment changed. Refresh this incident before continuing.", 409);
     if (result.notFound) return err("No open responder assignment for this driver", 404);
     if (result.unchanged) return ok({ unchanged: true, incident_id: result.incidentId });
 

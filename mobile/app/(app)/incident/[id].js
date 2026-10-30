@@ -1,9 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, RefreshControl } from "react-native";
+import React, { useLayoutEffect, useCallback, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, RefreshControl, AppState } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
+import { useAuth } from '../../../lib/auth';
+import { useConnectivity } from '../../../lib/connectivity-context';
+import { runResponderAction } from '../../../lib/responder-action';
 import { api } from "../../../lib/api";
 import { fonts } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
@@ -59,10 +62,21 @@ function TimelineStep({ icon, iconBg, iconColor, title, subtitle, body, colors, 
 
 export default function IncidentStatusScreen() {
   const { id } = useLocalSearchParams();
+  const { user } = useAuth();
+  const { status: connection } = useConnectivity();
+  const routeContext = useRef(null), readAuthority = useRef(null), responderBusy = useRef(false);
+  useLayoutEffect(() => {
+    routeContext.current = `${user?.employeeId}:${id}:${connection}`;
+    return () => { routeContext.current = null; readAuthority.current = null; };
+  }, [user?.employeeId, id, connection]);
+  const currentMission = () => connection === 'online' && routeContext.current === `${user?.employeeId}:${id}:${connection}` && readAuthority.current === routeContext.current;
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
 
+  const [loadError, setLoadError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [incident, setIncident] = useState(null);
   const [responderMission, setResponderMission] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -106,8 +120,11 @@ export default function IncidentStatusScreen() {
   }, [id]);
 
   const load = useCallback(async () => {
+    const context = routeContext.current;
+    readAuthority.current = null;
     try {
       const data = await api.get("/api/driver/incidents");
+      if (routeContext.current !== context) return;
       const found = Array.isArray(data) ? data.find((i) => String(i.incident_id) === String(id)) : null;
       if (found) {
         setResponderMission(null);
@@ -120,42 +137,39 @@ export default function IncidentStatusScreen() {
         // Not the reporting driver — maybe this driver is the assigned fleet
         // responder (the assignment notification deep-links here). Fall
         // through to the mission view instead of "not found".
+        const missions = await api.get("/api/driver/incidents?role=responder");
+        if (routeContext.current !== context) return;
+        const mission = Array.isArray(missions)
+          ? missions.find((m) => String(m.incident_id) === String(id))
+          : null;
         setIncident(null);
-        try {
-          const missions = await api.get("/api/driver/incidents?role=responder");
-          const mission = Array.isArray(missions)
-            ? missions.find((m) => String(m.incident_id) === String(id))
-            : null;
-          setResponderMission(mission || null);
-        } catch {
-          setResponderMission(null);
-        }
+        setResponderMission(mission || null);
       }
-    } catch {
-      setIncident(null);
-      setResponderMission(null);
+      readAuthority.current = context;
+      setLoadError(null);
+      setLastUpdated(new Date().toISOString());
+    } catch (error) {
+      if (routeContext.current !== context) return;
+      setLoadError(error?.message || "Could not refresh the incident. Check your connection and retry.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [id, postLocation]);
 
-  useEffect(() => {
-    // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
-    const t = setTimeout(load, 0);
-    return () => clearTimeout(t);
-  }, [load]);
-
-  // Keep the status current while the driver waits for a response.
-  useEffect(() => {
-    const t = setInterval(load, 30000);
-    return () => clearInterval(t);
-  }, [load]);
+  useFocusEffect(useCallback(() => {
+    const refresh = () => { if (AppState.currentState === "active") load(); };
+    const first = setTimeout(refresh, 0);
+    const poll = setInterval(refresh, 30000);
+    const subscription = AppState.addEventListener("change", next => { if (next === "active") load(); });
+    return () => { clearTimeout(first); clearInterval(poll); subscription.remove(); };
+  }, [load]));
 
   const confirmResolution = async () => {
     try {
       setConfirming(true);
-      await api.post(`/api/driver/incidents/${id}/confirm-resolution`);
+      const result = await api.post(`/api/driver/incidents/${id}/confirm-resolution`, undefined, { queueOnFailure: false });
+      if (result?.queued) throw new Error("Confirmation has not reached the server. Please retry when connected.");
       await load();
     } catch (e) {
       AppAlert.alert("Could not confirm", e?.message || "Please try again.");
@@ -172,7 +186,8 @@ export default function IncidentStatusScreen() {
     }
     try {
       setDisputeSubmitting(true);
-      await api.post(`/api/driver/incidents/${id}/reopen`, { reason });
+      const result = await api.post(`/api/driver/incidents/${id}/reopen`, { reason }, { queueOnFailure: false });
+      if (result?.queued) throw new Error("Reopening was not confirmed. Your reason is kept; please retry when connected.");
       setDisputeOpen(false);
       setDisputeReason("");
       await load();
@@ -187,13 +202,17 @@ export default function IncidentStatusScreen() {
   // "Arrived" and tells the driver + fleet team through the same path the
   // automatic tracker uses.
   const markArrived = async () => {
+    if (responderBusy.current) return;
+    responderBusy.current = true;
     try {
       setArriving(true);
-      await api.post("/api/driver/responder/arrived");
+      const result = await runResponderAction({ incidentId: id, actorId: user?.employeeId, action: "arrived", isCurrent: currentMission });
+      if (result?.queued) throw new Error("Arrival was not confirmed. Please retry when connected.");
       await load();
     } catch (e) {
       AppAlert.alert("Could not confirm arrival", e?.message || "Please try again.");
     } finally {
+      responderBusy.current = false;
       setArriving(false);
     }
   };
@@ -210,18 +229,20 @@ export default function IncidentStatusScreen() {
         {
           text: "Resolved",
           onPress: async () => {
+            if (role === "responder" && responderBusy.current) return;
+            if (role === "responder") responderBusy.current = true;
             try {
               setResolving(true);
-              await api.post(
-                role === "responder"
-                  ? "/api/driver/responder/resolve"
-                  : `/api/driver/incidents/${id}/resolve`
-              );
+              const result = role === "responder"
+                ? await runResponderAction({ incidentId: id, actorId: user?.employeeId, action: "resolve", isCurrent: currentMission })
+                : await api.post(`/api/driver/incidents/${id}/resolve`, undefined, { queueOnFailure: false });
+              if (result?.queued) throw new Error("Resolution was not confirmed. Please retry when connected.");
               if (role === "responder") setMissionResolved(true);
               await load();
             } catch (e) {
               AppAlert.alert("Could not resolve", e?.message || "Please try again.");
             } finally {
+              responderBusy.current = false;
               setResolving(false);
             }
           },
@@ -249,7 +270,7 @@ export default function IncidentStatusScreen() {
     return (
       <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
         <View style={[styles.topBar, { backgroundColor: colors.surface }]}>
-          <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
           <Text style={[styles.topBarTitle, { color: colors.onSurface }]}>Incident Status</Text>
@@ -270,7 +291,7 @@ export default function IncidentStatusScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={[styles.topBar, { backgroundColor: colors.surface, paddingTop: insets.top }]}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
@@ -297,6 +318,8 @@ export default function IncidentStatusScreen() {
           />
         }
       >
+        {loadError ? <View style={{ padding: 16, gap: 8 }}><Text accessibilityLiveRegion="polite" style={{ color: colors.error }}>{incident || responderMission ? "Showing last known status. " : "Incident status unavailable. "}{loadError}</Text><ClayButton label="Retry incident status" onPress={load} variant="tonal" /></View> : null}
+        {lastUpdated ? <Text style={{ color: colors.onSurfaceVariant }}>Last updated {formatWhen(lastUpdated)}</Text> : null}
         {missionResolved && !incident && !responderMission ? (
           // The mission left the responder feed the moment it resolved — this
           // is the success state for the driver who just closed it, not a
@@ -308,7 +331,7 @@ export default function IncidentStatusScreen() {
               You resolved this incident from the field — the driver and the fleet team have been notified. Thank you.
             </Text>
           </View>
-        ) : !incident && !responderMission ? (
+        ) : !incident && !responderMission && loadError ? null : !incident && !responderMission ? (
           <View style={styles.centerBox}>
             <Ionicons name="warning-outline" size={36} color={colors.onSurfaceVariant} />
             <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>Report not found</Text>
@@ -398,7 +421,7 @@ export default function IncidentStatusScreen() {
                   variant="primary"
                   icon="checkmark-done"
                   loading={resolving}
-                  disabled={resolving}
+                  disabled={resolving || !!loadError || connection !== "online"}
                   onPress={() => confirmFieldResolve("responder")}
                   style={{ alignSelf: 'stretch', marginTop: 8 }}
                 />
@@ -413,7 +436,7 @@ export default function IncidentStatusScreen() {
                   variant="secondary"
                   icon="checkmark-circle"
                   loading={arriving}
-                  disabled={arriving}
+                  disabled={arriving || !!loadError || connection !== "online"}
                   onPress={markArrived}
                   style={{ alignSelf: 'stretch', marginTop: 8 }}
                 />
@@ -499,7 +522,7 @@ export default function IncidentStatusScreen() {
                   variant="primary"
                   icon="checkmark-done"
                   loading={resolving}
-                  disabled={resolving}
+                  disabled={resolving || !!loadError || connection !== "online"}
                   onPress={() => confirmFieldResolve("driver")}
                   style={{ alignSelf: 'stretch', marginTop: 8 }}
                 />
@@ -565,6 +588,7 @@ export default function IncidentStatusScreen() {
                 {disputeOpen ? (
                   <View style={{ gap: 8, marginTop: 8 }}>
                     <TextInput
+                    accessibilityLabel="Reason this incident still needs help"
                       value={disputeReason}
                       onChangeText={setDisputeReason}
                       placeholder="What still needs help? (required)"

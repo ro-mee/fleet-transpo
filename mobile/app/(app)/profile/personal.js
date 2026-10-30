@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,10 +14,11 @@ import { ClayCard, ClayButton } from "../../../components/clay";
 import { notify } from "../../../lib/notifications/notify";
 
 function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
+  const { type } = useTheme();
   return (
     <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: isDark ? colors.outlineVariant + "40" : "transparent" }]}>
-      <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
-      <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
+      <Text style={[styles.infoLabel, type.supporting, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      <Text style={[styles.infoValue, type.supporting, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
   );
 }
@@ -25,14 +26,14 @@ function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
 export default function PersonalInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, type } = useTheme();
   const isDark = scheme === "dark";
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently instead of erroring (the phone PATCH below still needs a
   // connection and says so on failure).
-  const { profile, loading, reload } = useDriverProfile({
-    onError: () => AppAlert.alert("Unable to Load Profile", "Please check your network connection and pull down to retry."),
+  const { profile, loading, reload, error } = useDriverProfile({
+    onError: () => AppAlert.alert("Unable to Load Profile", "Please check your network connection and tap Retry profile."),
   });
 
   // Editable field: mirrors the profile's phone (cached or live) until the
@@ -46,20 +47,25 @@ export default function PersonalInformation() {
   };
   const [editingPhone, setEditingPhone] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [phoneError, setPhoneError] = useState(null);
 
   const savePhone = async () => {
-    if (!phone.trim()) return;
+    if (!phone.trim()) { setPhoneError("Enter your phone number."); return; }
+    if (!/^(?:\+63|0)9\d{9}$/.test(phone.replace(/[\s()-]/g, ""))) { setPhoneError("Use a Philippine mobile number, such as 09171234567 or +639171234567."); return; }
+    setPhoneError(null);
     setSaving(true);
     try {
-      await apiFetch("/api/driver/me", {
+      const result = await apiFetch("/api/driver/me", {
         method: "PATCH",
+        queueOnFailure: false,
         body: JSON.stringify({ phone: phone.trim() }),
       });
+      if (result?.queued) throw new Error("Phone update was not confirmed. Your draft is kept; connect and try again.");
       setEditingPhone(false);
       // Refresh cache + state so the new number survives offline, and let
       // the display mirror the reloaded profile again.
-      await reload();
-      setPhoneEdited(false);
+      const refreshed = await reload();
+      setPhoneEdited(refreshed?.phone !== phone.trim());
       notify.toast({ message: "Phone number updated successfully.", tone: "success" });
     } catch (e) {
       AppAlert.alert("Unable to Save Phone Number", e.message || "Please check your input and try again.");
@@ -81,10 +87,14 @@ export default function PersonalInformation() {
     : profile?.name || "Driver";
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.root, { backgroundColor: colors.background }]}>
       <ClayScreenHeader title="Personal Information" onBack={() => router.back()} />
 
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
+        {error ? <View style={{ padding: 16, gap: 8 }}>
+          <Text accessibilityLiveRegion="polite" style={{ color: colors.error }}>{profile ? "Showing saved profile. " : "Profile unavailable. "}{error}</Text>
+          <ClayButton label="Retry profile" variant="tonal" onPress={reload} />
+        </View> : null}
         <ClayCard variant="standard" style={styles.sectionCard}>
           <InfoRow label="Position" value={profile?.position || "Driver"} colors={colors} isDark={isDark} />
           <InfoRow label="Full Name" value={driverName} colors={colors} isDark={isDark} />
@@ -92,15 +102,16 @@ export default function PersonalInformation() {
           <InfoRow label="Email" value={profile?.email} colors={colors} isDark={isDark} />
 
           {/* Editable Phone Row */}
-          <View style={[styles.infoRow, { borderBottomWidth: 1, borderBottomColor: isDark ? colors.outlineVariant + "40" : "transparent" }]}>
-            <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Phone</Text>
+          <View style={[styles.infoRow, editingPhone && { flexDirection: "column", alignItems: "stretch", gap: 8 }, { borderBottomWidth: 1, borderBottomColor: isDark ? colors.outlineVariant + "40" : "transparent" }]}>
+            <Text style={[styles.infoLabel, type.supporting, { color: colors.onSurfaceVariant }]}>Phone</Text>
             {editingPhone ? (
               <View style={styles.phoneEdit}>
                 <TextInput
-                  style={[styles.phoneInput, { backgroundColor: colors.surfaceContainerHigh, color: colors.onSurface }]}
+                  style={[styles.phoneInput, type.bodyMd, { backgroundColor: colors.surfaceContainerHigh, color: colors.onSurface }]}
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
+                  accessibilityLabel="Phone number"
                   placeholder="Phone number"
                   placeholderTextColor={colors.outline}
                 />
@@ -112,21 +123,21 @@ export default function PersonalInformation() {
                   disabled={saving}
                   onPress={savePhone}
                   accessibilityLabel="Save phone number"
-                  style={{ minWidth: 44, paddingHorizontal: 0 }}
+                  style={{ minWidth: 48, minHeight: 48, paddingHorizontal: 0 }}
                 />
                 <ClayButton
                   icon="close"
                   variant="tonal"
                   size="sm"
                   disabled={saving}
-                  onPress={() => setEditingPhone(false)}
+                  onPress={() => { setEditingPhone(false); setPhoneEdited(false); setPhoneInput(""); setPhoneError(null); }}
                   accessibilityLabel="Cancel phone number edit"
-                  style={{ minWidth: 44, paddingHorizontal: 0 }}
+                  style={{ minWidth: 48, minHeight: 48, paddingHorizontal: 0 }}
                 />
               </View>
             ) : (
               <Pressable style={styles.phoneRow} onPress={() => setEditingPhone(true)} accessibilityRole="button" accessibilityLabel="Edit phone number">
-                <Text style={[styles.infoValue, { color: colors.onSurface }]}>
+                <Text style={[styles.infoValue, type.supporting, { color: colors.onSurface }]}>
                   {phone || "—"}
                 </Text>
                 <Ionicons name="pencil-outline" size={16} color={colors.primary} />
@@ -134,6 +145,7 @@ export default function PersonalInformation() {
             )}
           </View>
 
+          {phoneError ? <Text accessibilityLiveRegion="polite" style={{ color: colors.error, padding: 12 }}>{phoneError}</Text> : null}
           <InfoRow label="Birthdate" value={profile?.birthdate || "—"} colors={colors} isDark={isDark} />
           <InfoRow
             label="Sex"
@@ -141,7 +153,7 @@ export default function PersonalInformation() {
             colors={colors}
             isDark={isDark}
           />
-          <InfoRow label="Nationality" value={profile?.nationality || "Filipino"} colors={colors} isDark={isDark} />
+          <InfoRow label="Nationality" value={profile?.nationality || "Not provided"} colors={colors} isDark={isDark} />
           <InfoRow label="Residential Address" value={profile?.address || "—"} colors={colors} isDark={isDark} isLast />
         </ClayCard>
 
@@ -156,7 +168,7 @@ export default function PersonalInformation() {
           </ClayCard>
         )}
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -193,15 +205,15 @@ const styles = StyleSheet.create({
   },
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
-  phoneEdit: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, justifyContent: "flex-end" },
+  phoneEdit: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, flex: 1, justifyContent: "flex-end" },
   phoneInput: {
     flex: 1,
     borderRadius: 18,
     paddingHorizontal: 14,
     fontSize: 14,
     fontFamily: fonts.body,
-    minHeight: 44,
-    maxWidth: 180,
+    minHeight: 48,
+    minWidth: "100%",
   },
   phoneRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" },
 });

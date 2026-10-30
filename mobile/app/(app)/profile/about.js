@@ -1,25 +1,20 @@
 import React from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Linking } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from "../../../components/ClayScreenHeader";
 import { Logo } from "../../../components/logo";
-import { ClayCard, ClayTile } from "../../../components/clay";
-
-// Currently configured support contacts — reused from the Help Center.
-// TODO(production): verify these are the real hotline/email before release.
-const SUPPORT_PHONE = "1-800-123-4567";
-const SUPPORT_EMAIL = "support@fleetops.com";
+import { ClayCard } from "../../../components/clay";
 
 function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
+  const { type } = useTheme();
   return (
     <View style={[styles.infoRow, { borderTopWidth: 1, borderTopColor: isDark ? colors.outlineVariant + "55" : "transparent", borderBottomWidth: isLast ? 0 : 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
-      <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
-      <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
+      <Text style={[styles.infoLabel, type.supporting, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      <Text style={[styles.infoValue, type.supporting, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
   );
 }
@@ -27,7 +22,7 @@ function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
 export default function AboutFleetOps() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, type } = useTheme();
   const isDark = scheme === "dark";
 
   return (
@@ -42,7 +37,7 @@ export default function AboutFleetOps() {
 
         <ClayCard variant="standard" style={styles.sectionCard}>
           <View style={styles.aboutBlock}>
-            <Text style={[styles.aboutText, { color: colors.onSurfaceVariant }]}>
+            <Text style={[styles.aboutText, type.supporting, { color: colors.onSurfaceVariant }]}>
               FleetOps is the companion app for drivers of the organization. It shows your assigned trips with navigation, lets you report incidents, log fuel, complete pre-trip inspections, and keep track of your work schedule.
             </Text>
           </View>
@@ -51,35 +46,10 @@ export default function AboutFleetOps() {
 
         <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>SUPPORT</Text>
         <ClayCard variant="standard" style={styles.sectionCard}>
-          <Pressable
-            style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
-            onPress={() => Linking.openURL('tel:18001234567')}
-          >
-            <View style={styles.contactRowLeft}>
-              <ClayTile icon="call" size={38} variant="primary" />
-              <View>
-                <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Dispatch Hotline</Text>
-                <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>{SUPPORT_PHONE}</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
-
-          <View style={[styles.divider, { backgroundColor: isDark ? colors.outlineVariant + "55" : "transparent" }]} />
-
-          <Pressable
-            style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
-            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
-          >
-            <View style={styles.contactRowLeft}>
-              <ClayTile icon="mail" size={38} variant="primary" />
-              <View>
-                <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Email Support</Text>
-                <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>{SUPPORT_EMAIL}</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
+          <View style={{ padding: 20, gap: 8 }}>
+            <Text style={{ color: colors.onSurface }}>Support contact information is not configured.</Text>
+            <Text style={{ color: colors.onSurfaceVariant }}>Ask your fleet manager for the correct dispatch contact. For an immediate emergency, use SOS or call emergency services.</Text>
+          </View>
         </ClayCard>
 
       </ScrollView>

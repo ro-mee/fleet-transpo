@@ -62,6 +62,7 @@ function AppControlRow({ icon, title, description, value, onValueChange, permiss
           <View style={styles.controlHeader}>
             <Text style={[type.bodyMd, styles.controlTitle, { color: colors.onSurface }]}>{title}</Text>
             <Switch
+              accessibilityLabel={title}
               value={value}
               onValueChange={onValueChange}
               trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
@@ -168,7 +169,7 @@ export default function AppPermissionsScreen() {
         AppAlert.alert(
           `${row.title} is blocked`,
           "Enable it in your device settings to use features that depend on it.",
-          [{ text: "OK" }]
+          [{ text: "Cancel", style: "cancel" }, { text: "Open Settings", onPress: () => { openedSystemSettingsRef.current = true; openSystemSettings(); } }]
         );
       }
       await refreshPermissions();
@@ -191,13 +192,13 @@ export default function AppPermissionsScreen() {
             AppAlert.alert(
               "Location is blocked",
               "Enable location for FleetOps in your device settings, then turn tracking back on.",
-              [{ text: "OK" }]
+              [{ text: "Cancel", style: "cancel" }, { text: "Open Settings", onPress: () => { openedSystemSettingsRef.current = true; openSystemSettings(); } }]
             );
           } else {
             AppAlert.alert(
               "Location permission needed",
               "FleetOps needs the device location permission before tracking can be turned on.",
-              [{ text: "OK" }]
+              [{ text: "Cancel", style: "cancel" }, { text: "Open Settings", onPress: () => { openedSystemSettingsRef.current = true; openSystemSettings(); } }]
             );
           }
           updateSetting("locationTracking", false);
@@ -220,7 +221,7 @@ export default function AppPermissionsScreen() {
   const syncPushPreference = (enabled) => {
     api
       .put("/api/notifications/preferences", { channel: "push", enabled, bulk: true })
-      .catch(() => {});
+      .catch(() => AppAlert.alert("Notification preference not synced", "Your device preference is saved, but the server has not confirmed it. Connect and toggle the preference again to retry."));
   };
 
   const togglePushNotifications = async (val) => {
@@ -231,7 +232,7 @@ export default function AppPermissionsScreen() {
         AppAlert.alert(
           "Notifications blocked",
           "Enable notifications for FleetOps in your device settings to get push-style alerts.",
-          [{ text: "OK" }]
+          [{ text: "Cancel", style: "cancel" }, { text: "Open Settings", onPress: () => { openedSystemSettingsRef.current = true; openSystemSettings(); } }]
         );
         updateSetting("pushNotifications", false);
         return;

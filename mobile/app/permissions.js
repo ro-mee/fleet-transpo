@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  AppState,
   Image,
   ScrollView,
   StyleSheet,
@@ -18,6 +19,7 @@ import {
   listAppPermissions,
   requestAppPermission,
   PERMISSION_STATUS,
+  openSystemSettings,
 } from "../lib/permissions";
 import { registerDeviceToken } from "../lib/notifications/device-token";
 import {
@@ -34,6 +36,7 @@ const ONBOARDING_PERMISSION_KEYS = [
   "locationBackground",
   "camera",
   "mediaLibrary",
+  "notifications",
 ];
 
 export default function PermissionsScreen() {
@@ -58,13 +61,20 @@ export default function PermissionsScreen() {
         setStatuses(Object.fromEntries(results.map((r) => [r.key, r])));
       })
       .catch(() => {});
+    const subscription = AppState.addEventListener("change", next => {
+      if (next === "active") getPermissionStatuses().then(results => {
+        if (active) setStatuses(Object.fromEntries(results.map(r => [r.key, r])));
+      }).catch(() => {});
+    });
     return () => {
+      subscription.remove();
       active = false;
     };
   }, []);
 
   const onRequestSinglePermission = useCallback(async (key) => {
     try {
+      if (statuses[key]?.status === PERMISSION_STATUS.DENIED && statuses[key]?.canAskAgain === false) { openSystemSettings(); return; }
       const result = await requestAppPermission(key);
       if (result) {
         setStatuses((prev) => ({ ...prev, [key]: result }));
@@ -75,7 +85,7 @@ export default function PermissionsScreen() {
     } catch (e) {
       setError(e.message || "Could not request permission.");
     }
-  }, []);
+  }, [statuses]);
 
   const onRequestPermissions = useCallback(async () => {
     setLoading(true);
@@ -83,6 +93,7 @@ export default function PermissionsScreen() {
     try {
       const allPermissions = listAppPermissions();
       for (const entry of allPermissions) {
+        if (statuses[entry.key]?.status === PERMISSION_STATUS.DENIED && statuses[entry.key]?.canAskAgain === false) continue;
         const result = await requestAppPermission(entry.key);
         if (result) {
           setStatuses((prev) => ({ ...prev, [entry.key]: result }));
@@ -97,7 +108,7 @@ export default function PermissionsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, statuses]);
 
   const allApproved =
     permissions.length > 0 &&
@@ -133,7 +144,7 @@ export default function PermissionsScreen() {
             <Text style={styles.heroTitleMain}>Permissions</Text>
           </Text>
           <Text style={[styles.heroSubtitle, compact && styles.heroSubtitleCompact]}>
-            We need a few permissions to give you the best experience on the road.
+            Review each permission below. Tap a blocked permission to open device settings, then return here to refresh its status.
           </Text>
         </View>
 

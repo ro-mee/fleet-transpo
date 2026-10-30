@@ -1,13 +1,15 @@
 import React from 'react';
+import { fuelLevelError } from '../../lib/fuel-request-validation';
 import { View, Text, TextInput, Pressable, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import { useTheme } from '../../lib/theme-context';
 import { fonts } from '../../lib/theme';
 import { ClayButton } from '../clay';
 import { CoachMarkTarget } from '../coachmarks';
 
-export default function FuelRequestForm({ latestFuelRequest, fuelLevelPercent, setFuelLevelPercent, gaugePhotoUrl, setGaugePhotoUrl, gaugeScanEstimate, setGaugeScanEstimate, gaugeBusy = false, requestingFuel = false, requestPurpose, setRequestPurpose, hasAssignedVehicle, onCaptureGauge, requestFuel, styles: providedStyles }) {
+export default function FuelRequestForm({ latestFuelRequest, fuelLevelPercent, setFuelLevelPercent, gaugePhotoUrl, setGaugePhotoUrl, gaugeScanEstimate, setGaugeScanEstimate, gaugeBusy = false, requestingFuel = false, requestPurpose, setRequestPurpose, hasAssignedVehicle, fuelLevelInputRef, onCaptureGauge, requestFuel, styles: providedStyles }) {
   const { colors } = useTheme();
   const styles = providedStyles || defaultStyles;
+  const levelError = fuelLevelError(fuelLevelPercent);
   return <>
               <>
                 {latestFuelRequest?.status === "Rejected" ? (
@@ -18,6 +20,7 @@ export default function FuelRequestForm({ latestFuelRequest, fuelLevelPercent, s
                 <View style={styles.fieldGroup}>
                   <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>CURRENT FUEL LEVEL (%)</Text>
                   <TextInput
+                    ref={fuelLevelInputRef}
                     style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
                     placeholder="e.g. 25"
                     placeholderTextColor={colors.outline}
@@ -27,6 +30,7 @@ export default function FuelRequestForm({ latestFuelRequest, fuelLevelPercent, s
                     onChangeText={setFuelLevelPercent}
                   />
                 </View>
+                {levelError ? <Text accessibilityLiveRegion="polite" style={{ color: colors.error }}>{levelError}</Text> : null}
                 <View style={styles.fieldGroup}>
                   <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>GAUGE PHOTO (REQUIRED)</Text>
                   {gaugePhotoUrl ? (
@@ -41,7 +45,7 @@ export default function FuelRequestForm({ latestFuelRequest, fuelLevelPercent, s
                         <Text style={{ color: colors.onSurfaceVariant, fontSize: 12 }}>
                           {gaugeScanEstimate != null ? `AI read ~${gaugeScanEstimate}% from this photo` : "Evidence attached"}
                         </Text>
-                        <Pressable onPress={() => { setGaugePhotoUrl(''); setGaugeScanEstimate(null); }} accessibilityRole="button" accessibilityLabel="Remove gauge photo and retake" style={{ marginTop: 6 }}>
+                        <Pressable onPress={() => { setGaugePhotoUrl(''); setGaugeScanEstimate(null); }} accessibilityRole="button" accessibilityLabel="Remove gauge photo and retake" style={{ marginTop: 6, minHeight: 48, justifyContent: 'center' }}>
                           <Text style={{ color: colors.error, fontWeight: '600' }}>Retake photo</Text>
                         </Pressable>
                       </View>
@@ -71,7 +75,7 @@ export default function FuelRequestForm({ latestFuelRequest, fuelLevelPercent, s
                     variant="primary"
                     icon="send-outline"
                     loading={requestingFuel}
-                    disabled={requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy}
+                    disabled={requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy || !!levelError}
                     onPress={requestFuel}
                     style={{ alignSelf: 'stretch', marginTop: 8 }}
                   />

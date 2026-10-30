@@ -4,7 +4,7 @@ import { guardLegacyGuideLinks } from '../../components/coachmarks/LegacyGuideLi
 import IncidentReportForm, { IncidentSubmitButton } from '../../components/incidents/IncidentReportForm';
 import { moderateScale } from '../../lib/scaling';
 import { useState, useEffect, useRef } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, InteractionManager, Modal } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Linking, Platform, Image, InteractionManager, Modal } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,6 +24,12 @@ import {
   INCIDENT_SEVERITY_RULE_VERSION,
   recommendIncidentSeverity,
 } from "../../../shared/incidents/severity.js";
+
+async function withLocationTimeout(promise, milliseconds) {
+  let timer;
+  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Location timed out")), milliseconds); })]); }
+  finally { clearTimeout(timer); }
+}
 
 function IncidentsScreen() {
   const insets = useSafeAreaInsets();
@@ -57,6 +63,8 @@ function IncidentsScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showTourSuccessModal, setShowTourSuccessModal] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState(0);
+  const [submitPhase, setSubmitPhase] = useState("");
   const [queuedOffline, setQueuedOffline] = useState(false);
 
   const [vehicleId, setVehicleId] = useState(null);
@@ -130,7 +138,10 @@ function IncidentsScreen() {
       let result;
       if (useCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') return;
+        if (status !== 'granted') {
+          AppAlert.alert("Camera permission needed", "Allow camera access in device settings, then return and try again.", [{ text: "Cancel", style: "cancel" }, { text: "Open Settings", onPress: () => Linking.openSettings() }]);
+          return;
+        }
         result = await ImagePicker.launchCameraAsync(options);
       } else {
         result = await ImagePicker.launchImageLibraryAsync(options);
@@ -245,6 +256,7 @@ function IncidentsScreen() {
       // replay of the previous report.
       const clientSubmissionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       setUploadingPhotos(true);
+      setSubmitPhase("Uploading photos…");
       
       const uploadedRefs = [];
       let failedPhotoCount = 0;
@@ -258,6 +270,7 @@ function IncidentsScreen() {
         try {
           const uploadRes = await api.post("/api/driver/incidents/upload", formData, {
             headers: { "Content-Type": "multipart/form-data" },
+            queueOnFailure: false,
           });
           if (uploadRes && uploadRes.photo_path) {
             uploadedRefs.push(uploadRes.photo_path);
@@ -271,6 +284,7 @@ function IncidentsScreen() {
       }
       setUploadingPhotos(false);
       
+      setSubmitPhase("Finding your location…");
       let gpsLocation = "GPS Location unavailable";
       let lat = null;
       let lng = null;
@@ -278,12 +292,12 @@ function IncidentsScreen() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const loc = await withLocationTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }), 10000);
           lat = loc.coords.latitude;
           lng = loc.coords.longitude;
           
           try {
-            const geocode = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+            const geocode = await withLocationTimeout(Location.reverseGeocodeAsync({ latitude: lat, longitude: lng }), 3000);
             if (geocode && geocode.length > 0) {
               const place = geocode[0];
               const parts = [place.street, place.city || place.subregion, place.region].filter(Boolean);
@@ -300,6 +314,7 @@ function IncidentsScreen() {
         console.warn("Failed to get location for incident report", locErr);
       }
 
+      setSubmitPhase("Sending incident report…");
       const result = await api.post("/api/driver/incidents", {
         trip_id: tripId ? parseInt(tripId, 10) : null,
         vehicle_id: vehicleId,
@@ -325,17 +340,14 @@ function IncidentsScreen() {
       });
       // apiFetch queues POSTs during network failures and resolves
       // { queued: true } — the report has NOT reached dispatch yet.
-      if (failedPhotoCount > 0) {
-        AppAlert.alert(
-          "Report sent without all photos",
-          `${failedPhotoCount} photo${failedPhotoCount === 1 ? "" : "s"} could not be uploaded. You can submit the report again with the missing evidence.`
-        );
-      }
+      setFailedPhotos(failedPhotoCount);
       setQueuedOffline(result?.queued === true);
       setShowSuccess(true);
     } catch (e) {
       AppAlert.alert("Unable to Submit Incident Report", e.message || "Please check your network connection and try submitting again.");
     } finally {
+      setUploadingPhotos(false);
+      setSubmitPhase("");
       setSubmitting(false);
     }
   };
@@ -409,6 +421,7 @@ function IncidentsScreen() {
           },
         ]}
       >
+        {submitting ? <Text accessibilityLiveRegion="polite" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>{submitPhase}</Text> : null}
         <IncidentSubmitButton onSubmit={handleSubmit} submitting={submitting} uploadingPhotos={uploadingPhotos} />
       </View>
 
@@ -462,7 +475,9 @@ function IncidentsScreen() {
       {/* Success Overlay */}
       {showSuccess && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: 24 }]}>
-          <ClayCard style={{ width: '100%', maxWidth: 400, padding: 28, alignItems: 'center' }}>
+          <ClayCard style={{ width: '100%', maxWidth: 400, padding: 0, maxHeight: '90%' }}>
+            <ScrollView contentContainerStyle={{ padding: 24, alignItems: 'center', gap: 8 }}>
+            {failedPhotos ? <Text accessibilityLiveRegion="polite" style={{ color: colors.error, marginBottom: 12 }}>{failedPhotos} photo{failedPhotos === 1 ? "" : "s"} could not be uploaded and remain only on this device. {queuedOffline ? "The report is saved offline and has not reached dispatch." : "The report was received without these photos."} Do not submit a second report for the same incident. Ask dispatch how to share the missing evidence.</Text> : null}
             <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.errorContainer + '40', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
               <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: colors.errorContainer, justifyContent: 'center', alignItems: 'center' }}>
                 <Ionicons name="shield-checkmark" size={32} color={colors.onErrorContainer} />
@@ -483,6 +498,7 @@ function IncidentsScreen() {
               onPress={() => router.back()}
               style={{ width: '100%' }}
             />
+            </ScrollView>
           </ClayCard>
         </View>
       )}
