@@ -15,7 +15,7 @@ import * as SecureStore from "expo-secure-store";
  * localStorage with the same async API.
  */
 
-export const CURRENT_PRIVACY_POLICY_VERSION = 1;
+export { CURRENT_PRIVACY_POLICY_VERSION } from "../../shared/privacy-policy";
 
 const KEY = "fleetops_consent_version";
 

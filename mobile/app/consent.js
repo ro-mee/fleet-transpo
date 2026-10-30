@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { api } from "../lib/api";
+import { PRIVACY_POLICY } from "../../shared/privacy-policy";
 import {
   CURRENT_PRIVACY_POLICY_VERSION,
   setAcceptedConsentVersion,
@@ -35,16 +37,19 @@ export default function ConsentScreen() {
   const [checked, setChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [policyOpen, setPolicyOpen] = useState(false);
 
   const onAccept = useCallback(async () => {
+    if (!checked || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/api/driver/me/consent", {
+      const result = await api.post("/api/driver/me/consent", {
         policy_version: CURRENT_PRIVACY_POLICY_VERSION,
         accepted: true,
         via: "mobile",
-      });
+      }, { queueOnFailure: false });
+      if (result?.queued) throw new Error("Consent has not been confirmed. Connect and try again.");
       await setAcceptedConsentVersion(CURRENT_PRIVACY_POLICY_VERSION);
 
       // Navigate to the permissions screen
@@ -54,7 +59,7 @@ export default function ConsentScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [router]);
+  }, [router, checked, submitting]);
 
   return (
     <OnboardingBackground showMapBg={false}>
@@ -93,25 +98,42 @@ export default function ConsentScreen() {
             title="Location Tracking"
             description="Your live location is tracked while you are on duty, so dispatch can route trips and keep them safe."
             compact={compact}
-            showChevron={true}
+            showChevron={false}
           />
           <OnboardingCard
             icon="car"
             title="Telematics & Vehicle Data"
             description="We collect fuel and vehicle activity associated with your trips, plus your license details and attendance records."
             compact={compact}
-            showChevron={true}
+            showChevron={false}
           />
           <OnboardingCard
             icon="time"
             title="Data Retention"
             description="Records are kept for as long as you remain a driver and as required to meet legal and operational compliance obligations."
             compact={compact}
-            showChevron={true}
+            showChevron={false}
           />
         </View>
 
-        {/* Consent Row */}
+        <Pressable
+          onPress={() => setPolicyOpen(open => !open)}
+          accessibilityRole="button"
+          accessibilityLabel="Read privacy policy"
+          accessibilityState={{ expanded: policyOpen }}
+          style={styles.policyAction}
+        >
+          <Text style={styles.policyActionText}>{policyOpen ? 'Hide privacy policy' : 'Read privacy policy'}</Text>
+        </Pressable>
+        {policyOpen ? <View style={styles.policyContent}>
+          <Text accessibilityRole="header" style={styles.policyTitle}>{PRIVACY_POLICY.title}</Text>
+          <Text style={styles.policyBody}>Version {PRIVACY_POLICY.version} · Effective {PRIVACY_POLICY.effectiveDate}</Text>
+          {PRIVACY_POLICY.sections.map(section => <View key={section.heading} style={styles.policySection}>
+            <Text accessibilityRole="header" style={styles.policyTitle}>{section.heading}</Text>
+            <Text style={styles.policyBody}>{section.body}</Text>
+          </View>)}
+        </View> : null}
+
         <OnboardingConsentRow
           checked={checked}
           onToggle={() => setChecked((prev) => !prev)}
@@ -150,6 +172,12 @@ export default function ConsentScreen() {
 }
 
 const styles = StyleSheet.create({
+  policyAction: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 14 },
+  policyActionText: { fontFamily: fonts.bodySemiBold, fontSize: 15, color: onboardingTheme.colors.mint, textDecorationLine: 'underline' },
+  policyContent: { padding: 14, gap: 12, borderRadius: 16, backgroundColor: onboardingTheme.colors.surface },
+  policySection: { gap: 6 },
+  policyTitle: { fontFamily: fonts.bodySemiBold, fontSize: 16, color: onboardingTheme.colors.textPrimary },
+  policyBody: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21, color: onboardingTheme.colors.textSecondary },
   scrollContent: {
     paddingHorizontal: 18,
     paddingTop: 4,
