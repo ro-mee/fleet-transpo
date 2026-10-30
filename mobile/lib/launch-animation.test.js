@@ -56,19 +56,14 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(0); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe('bounded launch sequence', () => {
-  it('reveals the brand in order and hands off by 2080 ms without a native completion event', async () => {
+  it('leaves choreography to the single composition and hands off by 2080 ms without a native completion event', async () => {
     const h = await mount();
     expect(h.result.reducedMotion).toBe(false);
-    const wordmark = h.animations.find(animation => animation.value === h.result.reveal);
-    const tagline = h.animations.find(animation => animation.value === h.result.tagline);
-    expect(wordmark.at + wordmark.config.delay).toBe(1050);
-    expect(wordmark.config.duration).toBe(300);
-    expect(tagline.at + tagline.config.delay).toBe(1280);
-    expect(tagline.config.duration).toBe(260);
-    expect(h.animations.every(animation => animation.config.useNativeDriver && animation.config.isInteraction === false)).toBe(true);
+    expect(h.animations).toHaveLength(0);
     await h.advance(1899); expect(h.callback).not.toHaveBeenCalled();
     await h.advance(1);
     expect(h.animations.at(-1).config.duration).toBe(180);
+    expect(h.animations.at(-1).config).toMatchObject({ useNativeDriver: true, isInteraction: false });
     await h.advance(179); expect(h.callback).not.toHaveBeenCalled();
     await h.advance(1); expect(h.callback).toHaveBeenCalledOnce();
     expect(h.callback).toHaveBeenCalledWith(false);
@@ -78,8 +73,7 @@ describe('bounded launch sequence', () => {
     const query = pending(), h = await mount(query.promise);
     expect(h.result.reducedMotion).toBeNull();
     await h.advance(100); query.resolve(false); await flush(); h.render();
-    const wordmark = h.animations.find(animation => animation.value === h.result.reveal);
-    expect(wordmark.at + wordmark.config.delay).toBe(1050);
+    expect(h.animations).toHaveLength(0);
     await h.advance(1980); expect(h.callback).toHaveBeenCalledOnce();
   });
 
@@ -90,15 +84,15 @@ describe('bounded launch sequence', () => {
     expect(h.callback).not.toHaveBeenCalled(); expect(latest).toHaveBeenCalledOnce();
   });
 
-  it('never lets early successful artwork completion skip the readable wordmark and tagline', async () => {
+  it('never lets early successful artwork completion skip the final readable hold', async () => {
     const h = await mount(); h.result.finish(); h.result.finish();
-    await h.advance(1539); expect(h.callback).not.toHaveBeenCalled();
+    await h.advance(1899); expect(h.callback).not.toHaveBeenCalled();
     await h.advance(1); expect(h.animations.at(-1).config.duration).toBe(180);
     await h.advance(180); expect(h.callback).toHaveBeenCalledOnce();
   });
 
   it('completes once when artwork, native exit, and backup callbacks race', async () => {
-    const h = await mount(); await h.advance(1700); h.result.finish();
+    const h = await mount(); await h.advance(1900); h.result.finish();
     const exit = h.animations.at(-1);
     exit.complete(); exit.complete(); h.result.finish(); h.result.animationFailed();
     await h.advance(1000); expect(h.callback).toHaveBeenCalledOnce();
@@ -117,7 +111,6 @@ describe('bounded launch sequence', () => {
     if (preference === 'failed') { query.reject(Error('native preference unavailable')); await flush(); h.render(); }
     if (preference === 'unresolved') await h.advance(120);
     expect(h.result.reducedMotion).toBe(true);
-    expect(h.result.reveal.value).toBe(1); expect(h.result.tagline.value).toBe(1);
     expect(h.animations).toHaveLength(0);
     await h.advance(149); expect(h.callback).not.toHaveBeenCalled();
     await h.advance(2); expect(h.callback).toHaveBeenCalledWith(true);
@@ -136,7 +129,6 @@ describe('bounded launch sequence', () => {
   it('stops motion immediately on a system change and never replays when motion is re-enabled', async () => {
     const h = await mount(); await h.advance(400);
     h.change(true); expect(h.animations.every(animation => animation.stopped)).toBe(true);
-    expect(h.result.reveal.value).toBe(1); expect(h.result.tagline.value).toBe(1);
     h.change(false); expect(h.result.reducedMotion).toBe(true);
     await h.advance(151); expect(h.callback).toHaveBeenCalledWith(true);
   });
@@ -144,7 +136,6 @@ describe('bounded launch sequence', () => {
   it('makes failed artwork static immediately and leaves enough time to read the brand', async () => {
     const h = await mount(); await h.advance(300); h.result.animationFailed(); h.render();
     expect(h.result.reducedMotion).toBe(true);
-    expect(h.result.reveal.value).toBe(1); expect(h.result.tagline.value).toBe(1);
     await h.advance(149); expect(h.callback).not.toHaveBeenCalled();
     await h.advance(2); expect(h.callback).toHaveBeenCalledOnce();
   });

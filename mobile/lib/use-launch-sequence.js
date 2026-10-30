@@ -3,15 +3,13 @@ import { AccessibilityInfo, Animated, Easing } from 'react-native';
 
 export function useLaunchSequence(onComplete) {
   const [reducedMotion, setReducedMotion] = useState(null);
-  const [reveal] = useState(() => new Animated.Value(0));
-  const [tagline] = useState(() => new Animated.Value(0));
   const [exit] = useState(() => new Animated.Value(1));
   const callback = useRef(onComplete);
   const controls = useRef(null);
   useLayoutEffect(() => { callback.current = onComplete; }, [onComplete]);
 
   useEffect(() => {
-    const started = Date.now(), timers = new Set(), entrances = [];
+    const started = Date.now(), timers = new Set();
     let active = true, completed = false, exiting = false, preferenceChanged = false;
     let motion = null, normalTimer, queryTimer, exitAnimation;
     const schedule = (fn, delay) => {
@@ -20,7 +18,6 @@ export function useLaunchSequence(onComplete) {
       return timer;
     };
     const clearTimers = () => timers.forEach(clearTimeout);
-    const stopEntrance = () => entrances.forEach(animation => animation.stop());
     const complete = () => {
       if (!active || completed) return;
       completed = true;
@@ -46,9 +43,6 @@ export function useLaunchSequence(onComplete) {
       if (!active || completed || motion === true) return;
       motion = true;
       setReducedMotion(true);
-      stopEntrance();
-      reveal.setValue(1);
-      tagline.setValue(1);
       clearTimeout(queryTimer);
       clearTimeout(normalTimer);
       if (!exiting) schedule(beginExit, Math.min(150, 1900 - (Date.now() - started)));
@@ -61,27 +55,12 @@ export function useLaunchSequence(onComplete) {
       motion = false;
       setReducedMotion(false);
       clearTimeout(queryTimer);
-      for (const [value, at, duration] of [[reveal, 1050, 300], [tagline, 1280, 260]]) {
-        const animation = Animated.timing(value, {
-          toValue: 1,
-          delay: Math.max(0, at - (Date.now() - started)),
-          duration,
-          easing: Easing.bezier(0.16, 1, 0.3, 1),
-          useNativeDriver: true,
-          isInteraction: false,
-        });
-        entrances.push(animation);
-        animation.start();
-      }
     };
     controls.current = {
       finish() {
         if (!active || completed || exiting || motion !== false) return;
-        clearTimeout(normalTimer);
-        // A premature artwork event must not skip the text's readable reveal.
-        const remaining = 1540 - (Date.now() - started);
-        if (remaining > 0) normalTimer = schedule(beginExit, remaining);
-        else beginExit();
+        // Keep the final hold even if a renderer reports completion prematurely.
+        if (Date.now() - started >= 1900) beginExit();
       },
       animationFailed: showStatic,
     };
@@ -102,13 +81,12 @@ export function useLaunchSequence(onComplete) {
       active = false;
       controls.current = null;
       clearTimers();
-      stopEntrance();
       exitAnimation?.stop();
       subscription.remove();
     };
-  }, [exit, reveal, tagline]);
+  }, [exit]);
 
   const finish = useCallback(() => controls.current?.finish(), []);
   const animationFailed = useCallback(() => controls.current?.animationFailed(), []);
-  return { reducedMotion, reveal, tagline, exit, finish, animationFailed };
+  return { reducedMotion, exit, finish, animationFailed };
 }
