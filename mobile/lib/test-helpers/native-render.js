@@ -8,6 +8,8 @@ export async function nativeRender(url, { deps = {}, props = {}, name = 'default
   const cells = [], effects = [], cleanups = new Map(); let cursor = 0, root, currentProps = props;
   const changed = (a, b) => !a || !b || a.length !== b.length || a.some((x, i) => !Object.is(x, b[i]));
   const react = { ...React,
+    forwardRef: render => render,
+    memo: render => render,
     useState(initial) { const i = cursor++; if (!(i in cells)) cells[i] = typeof initial === 'function' ? initial() : initial; return [cells[i], value => { cells[i] = typeof value === 'function' ? value(cells[i]) : value; }]; },
     useRef(initial) { const i = cursor++; return cells[i] ||= { current: initial }; },
     useMemo(fn, dependencies) { const i = cursor++; if (!cells[i] || changed(cells[i].deps, dependencies)) cells[i] = { deps: dependencies, value: fn() }; return cells[i].value; },
