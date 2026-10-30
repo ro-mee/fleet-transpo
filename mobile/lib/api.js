@@ -403,7 +403,7 @@ setApiFetch(apiFetch);
 
 
 export const api = {
-  get: (path) => apiFetch(path),
+  get: (path, opts) => apiFetch(path, opts),
   post: (path, body, opts) =>
     apiFetch(path, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body), ...opts }),
   put: (path, body, opts) =>

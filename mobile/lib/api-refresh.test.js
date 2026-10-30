@@ -33,7 +33,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
   },
 }));
 
-import { apiFetch, setSessionExpiredHandler, subscribeApiEvents } from "./api";
+import { api, apiFetch, setSessionExpiredHandler, subscribeApiEvents } from "./api";
 import { saveTokens, getAccessToken, getRefreshToken, getUser, clearAll } from "./storage";
 import { completeSignIn, getRestorableSignedInUser, persistSignedInSession } from "./auth-session";
 import * as SecureStore from "expo-secure-store";
@@ -131,6 +131,35 @@ describe("reconnect burst with an expired access token", () => {
 });
 
 describe("cargo account fencing", () => {
+  it('preserves get options so a stale actor never sends the read', async () => {
+    await seedSession();
+    setCargoSessionActor('employee-B');
+    global.fetch.mockResolvedValue(jsonRes(200, { private: 'other account' }));
+    await expect(api.get('/api/mobile/driver/trips?trip_id=7', { cargoActorId: 'employee-A', queueOnFailure: false })).rejects.toMatchObject({ code: 'CARGO_SYNC_CANCELLED' });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('forwards caller cancellation from get through the real fetch boundary', async () => {
+    await seedSession();
+    setCargoSessionActor('employee-A');
+    const controller = new AbortController(); let requestSignal;
+    global.fetch = vi.fn((_url, init) => {
+      requestSignal = init.signal;
+      return new Promise((resolve, reject) => {
+        const cancel = () => reject(Object.assign(new Error('Cancelled by caller'), { name: 'AbortError' }));
+        if (init.signal.aborted) cancel();
+        else init.signal.addEventListener('abort', cancel, { once: true });
+      });
+    });
+    const pending = api.get('/api/mobile/driver/trips?trip_id=7', { cargoActorId: 'employee-A', signal: controller.signal, queueOnFailure: false });
+    const result = pending.then(value => ({ value }), error => ({ error }));
+    await vi.waitFor(() => expect(requestSignal).toBeDefined());
+    controller.abort();
+    expect(requestSignal.aborted).toBe(true);
+    expect((await result).error).toMatchObject({ status: 0 });
+    expect(onExpired).not.toHaveBeenCalled();
+  });
+
   it("reports failed cleanup after deleting the other stored session records", async () => {
     await persistSignedInSession({
       accessToken: "A-access",

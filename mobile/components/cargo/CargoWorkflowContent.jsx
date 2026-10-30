@@ -60,7 +60,7 @@ export function CargoWorkflowContent({ canOperate = false, mode, execution, trip
           {stage === "DELIVERY" && <>
             <Text style={type.bodyMd}>{view.summary.receiverLabel}</Text>
             <Text style={type.supporting}>Staff acknowledgment records who signed. Receiving authority must still be confirmed separately by the server.</Text>
-            <ClayButton label={view.canConfirmDelivery ? "Delivery confirmed by server" : "Confirm delivery"} disabled />
+            <Text accessibilityLiveRegion="polite" style={type.bodyMd}>{view.canConfirmDelivery ? "Delivery confirmed by server" : "Delivery awaits receiving confirmation"}</Text>
           </>}
           {(stale || form.pendingSubmissionId) && <ClayButton label="Begin a new count" variant="tonal" onPress={onRecount} disabled={!canOperate || busy || (pending && !stale)} />}
         </>}

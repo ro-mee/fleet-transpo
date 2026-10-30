@@ -8,7 +8,7 @@ import * as drawing from "./cargo-signature";
 import * as handover from "../../shared/cargo-handover";
 
 // Execute the actual modal JSX/hooks; only native rendering, GPS and callbacks are fixtures.
-async function harness(stage = "PICKUP", { sample = false } = {}) {
+async function harness(stage = "PICKUP", { sample = false, reviewedObservation } = {}) {
   const state = [], refs = [], effects = [];
   let cursor = 0, refCursor = 0;
   const react = { ...React, useState(initial) { const i = cursor++; if (!(i in state)) state[i] = typeof initial === "function" ? initial() : initial; return [state[i], value => { state[i] = typeof value === "function" ? value(state[i]) : value; }]; }, useRef(initial) { return refs[refCursor++] ||= { current: initial }; }, useMemo: fn => fn(), useEffect: fn => { effects.push(fn); }, createElement: (component, props, ...children) => ({ component, props: props || {}, children }) };
@@ -18,7 +18,7 @@ async function harness(stage = "PICKUP", { sample = false } = {}) {
   const code = (await transform(readFileSync(new URL("../components/cargo/CargoSignatureModal.jsx", import.meta.url), "utf8"), { loader: "jsx", format: "cjs" })).code;
   const scope = { exports: {} };
   runInNewContext(code, { module: scope, exports: scope.exports, React: react, Date, require: name => { if (!deps[name]) throw Error(`Missing ${name}`); return deps[name]; } });
-  let root, props = { visible: true, stage, busy: false, onCancel: cancel, onConfirm: confirm, getLocation: sample ? async () => null : options => drawing.captureCargoSignatureLocation(location, options) };
+  let root, props = { visible: true, stage, reviewedObservation, busy: false, onCancel: cancel, onConfirm: confirm, getLocation: sample ? async () => null : options => drawing.captureCargoSignatureLocation(location, options) };
   const render = (next = {}) => { props = { ...props, ...next }; cursor = refCursor = 0; root = scope.exports.CargoSignatureModal(props); if (typeof root?.component === "function") root = root.component(root.props); return root; };
   const nodes = () => { const out = []; const walk = n => { if (Array.isArray(n)) return n.forEach(walk); if (n?.component) { out.push(n); n.children.forEach(walk); } }; walk(root); return out; };
   render(); const cleanup = effects.splice(0).map(fn => fn());
@@ -28,6 +28,10 @@ async function harness(stage = "PICKUP", { sample = false } = {}) {
   return { render, nodes, node, text, fill, confirm, cancel, location, unmount: () => cleanup.forEach(fn => fn?.()) };
 }
 describe("cargo signer modal", () => {
+  it('shows the frozen counts, conditions and remarks that the staff member signs', async () => {
+    const h = await harness('PICKUP', { reviewedObservation: { manifest: { lines: [{ line_id: 'a', name: 'Rice crates', unit: 'crates', expected_quantity: '12' }] }, counts: { a: '10' }, issues: { a: { damaged: true, remarks: 'Two crates damaged', evidence: [{ uri: 'file:///local.jpg' }] } } } });
+    expect(h.text()).toContain('Rice crates'); expect(h.text()).toContain('10 crates'); expect(h.text()).toContain('Damaged'); expect(h.text()).toContain('Two crates damaged');
+  });
   it('uses the same signing controls for samples without invoking native GPS', async () => {
     const h = await harness('PICKUP', { sample: true }); h.fill();
     await h.node('Save signed observation').props.onPress();

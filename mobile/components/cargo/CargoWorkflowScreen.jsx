@@ -50,7 +50,7 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
       let execution = saved?.execution || null, trip = saved?.trip || null, fresh = false, error = null;
       if (!offline) {
         try {
-          const sources = await readCargoScreenSources(id, { driverType, readExecution: () => cargoApi.getExecution(id, actorId, snapshot.signal), readTrips: () => api.get("/api/mobile/driver/trips?status=all&limit=100") });
+          const sources = await readCargoScreenSources(id, { driverType, readExecution: () => cargoApi.getExecution(id, actorId, snapshot.signal), readTrips: () => api.get(`/api/mobile/driver/trips?trip_id=${encodeURIComponent(String(id))}`, { queueOnFailure: false, cargoActorId: actorId, signal: snapshot.signal }) });
           if (!current()) return;
           trip = sources.trip;
           if (!sources.cargoAllowed) {
@@ -165,14 +165,15 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
       <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
         <Text style={[type.labelLg, { color: colors.onSurface, marginBottom: 12 }]}>{workspaceModeLabel(workspace)}</Text><DriverGuideTrigger guideId={issueLine ? 'cargo.issue' : mode === 'delivery' ? 'cargo.delivery' : mode === 'overview' ? 'cargo.departure' : review ? 'cargo.pickup_signature' : 'cargo.manifest'} trip={screen.trip} requireTrip enabled={cargoAllowed && active && screen.fresh && !signatureVisible} />
         {active && !screen.loading && !cargoAllowed ? <View style={{ gap: 16 }}>
-          <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant }]}>{workspaceBlockReason(workspace) || "This Passenger vehicle uses hotel transportation. Open Trip Details for this trip."}</Text>
+          <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant }]}>{screen.error || workspaceBlockReason(workspace) || "This Passenger vehicle uses hotel transportation. Open Trip Details for this trip."}</Text>
           <ClayButton label="Refresh assignment" onPress={refresh} />
           <ClayButton label="Open Trip Details" onPress={() => router.push(`/trip/${id}`)} />
         </View> : <CargoWorkflowContent canOperate={canOperate} mode={mode} execution={execution} trip={active ? screen.trip : null} view={view} form={visibleForm} errors={errors} issueLine={execution?.manifest?.lines?.some(line => line.line_id === issueLine) ? issueLine : null} review={review} loading={!active || screen.loading} busy={busy} pending={pending} stale={stale} error={active ? screen.error : null} message={active ? message : null} onRefresh={refresh} onOpen={route => router.push(`/trip/${id}/${route}`)} onChange={(lineId, value) => edit({ ...formRef.current, counts: { ...formRef.current.counts, [lineId]: value } })} onIssue={setIssueLine} onIssueChange={issue => edit({ ...formRef.current, issues: { ...formRef.current.issues, [issueLine]: issue } })} onPhoto={photo} onCloseIssue={() => setIssueLine(null)} onReview={setReview} onSubmit={submit} onRecount={recount} />}
+        <ClayButton label="Return to Map" variant="tonal" disabled={busy} onPress={async () => { if (inFlight.current) return; try { if (active) await saveCargoForm({ ...context, form: formRef.current }); router.replace("/(app)/(tabs)/map"); } catch (failure) { setMessage(`Your count could not be saved: ${failure.message}. Retry before leaving.`); } }} />
         {mode === "overview" && cargoAllowed && execution?.manifest && <CargoPhysicalManifest manifest={execution.manifest} />}
       </ScrollView>
     </KeyboardAvoidingView>
-    <CargoSignatureModal visible={signatureVisible} stage={stage} busy={busy} onCancel={() => setSignatureRequest(null)} onConfirm={confirmSignature} getLocation={options => captureCargoSignatureLocation(Location, options)} />
+    <CargoSignatureModal visible={signatureVisible} stage={stage} reviewedObservation={signatureRequest ? { manifest: signatureRequest.execution?.manifest, counts: signatureRequest.form.counts, issues: signatureRequest.form.issues } : null} busy={busy} onCancel={() => setSignatureRequest(null)} onConfirm={confirmSignature} getLocation={options => captureCargoSignatureLocation(Location, options)} />
   </View>;
 }
 const styles = StyleSheet.create({ root: { flex: 1 }, content: { paddingHorizontal: 20, paddingTop: 16, width: "100%", maxWidth: 640, alignSelf: "center" } });

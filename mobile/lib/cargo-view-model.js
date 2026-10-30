@@ -146,6 +146,7 @@ export async function resolveCargoMapGate(trip, { driverType, offline = false, r
 // Keep trip identity/status even when the independently read cargo provider is unavailable.
 export async function readCargoScreenSources(tripId, { driverType, readExecution, readTrips }) {
   const [execution, trips] = await Promise.allSettled([readExecution(), readTrips()]);
+  if (trips.status === "rejected") throw trips.reason;
   const rows = trips.status === "fulfilled" && Array.isArray(trips.value) ? trips.value : [];
   const trip = rows.find(row => String(row.trip_id) === String(tripId)) || null;
   const workspace = resolveDriverWorkspace({ driverType, trip });

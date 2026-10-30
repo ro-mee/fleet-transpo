@@ -9,10 +9,10 @@ import { cargoSignatureHtml, parseCargoSignatureMessage } from "../../lib/cargo-
 import { CARGO_HANDOVER_ACKNOWLEDGMENT, validateCargoHandover } from "../../../shared/cargo-handover";
 
 // Unmount on cancel/close or stage change, discarding every unsent signer value.
-export function CargoSignatureModal({ visible, stage, busy, onCancel, onConfirm, getLocation, practiceLabel = false, onExit }) {
-  return visible ? <SignatureForm key={stage} stage={stage} busy={busy} onCancel={onCancel} onConfirm={onConfirm} getLocation={getLocation} practiceLabel={practiceLabel} onExit={onExit} /> : null;
+export function CargoSignatureModal({ visible, stage, busy, onCancel, onConfirm, getLocation, practiceLabel = false, onExit, reviewedObservation }) {
+  return visible ? <SignatureForm key={stage} stage={stage} busy={busy} onCancel={onCancel} onConfirm={onConfirm} getLocation={getLocation} practiceLabel={practiceLabel} onExit={onExit} reviewedObservation={reviewedObservation} /> : null;
 }
-function SignatureForm({ stage, busy = false, onCancel, onConfirm, getLocation, practiceLabel = false, onExit }) {
+function SignatureForm({ stage, busy = false, onCancel, onConfirm, getLocation, practiceLabel = false, onExit, reviewedObservation }) {
   const { colors, type } = useTheme(), insets = useSafeAreaInsets();
   const [name, setName] = useState(""), [department, setDepartment] = useState("");
   const [signature, setSignature] = useState(null), [accepted, setAccepted] = useState(false), [drawingKey, setDrawingKey] = useState(0);
@@ -48,6 +48,19 @@ function SignatureForm({ stage, busy = false, onCancel, onConfirm, getLocation, 
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}>
         <Text accessibilityRole="header" style={[type.headlineMd, { color: colors.onSurface }]}>{stage === "PICKUP" ? "Acknowledge pickup" : "Acknowledge delivery"}</Text>
         <Text style={[type.bodyMd, { color: colors.onSurface }]}>Ask the {stage === "PICKUP" ? "releasing" : "receiving"} staff member to review the current counts and conditions before signing. This signature applies only to the reviewed manifest and this {stage === "PICKUP" ? "pickup" : "delivery"} observation.</Text>
+        {reviewedObservation ? <View style={{ gap: 12 }}>
+          <Text accessibilityRole="header" style={[type.titleLg, { color: colors.onSurface }]}>Counts and conditions to acknowledge</Text>
+          {(reviewedObservation.manifest?.lines || []).map(line => {
+            const issue = reviewedObservation.issues?.[line.line_id] || {};
+            return <View key={line.line_id} style={{ gap: 4 }}>
+              <Text style={[type.labelLg, { color: colors.onSurface }]}>{line.name}</Text>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>{`${reviewedObservation.counts?.[line.line_id] ?? 'Not recorded'} ${line.unit}`}</Text>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>{issue.damaged ? 'Damaged' : 'Intact'}</Text>
+              {issue.remarks ? <Text style={[type.bodyMd, { color: colors.onSurface }]}>{issue.remarks}</Text> : null}
+              <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>{issue.evidence?.length || 0} observation photos</Text>
+            </View>;
+          })}
+        </View> : null}
         <ClayInput label={stage === "PICKUP" ? "Releasing staff name" : "Receiving staff name"} accessibilityLabel={stage === "PICKUP" ? "Releasing staff name" : "Receiving staff name"} value={name} onChangeText={setName} maxLength={160} autoCapitalize="words" editable={!locked} inputStyle={type.bodyMd} placeholderTextColor={colors.onSurfaceVariant} />
         <ClayInput label={stage === "PICKUP" ? "Role or department" : "Receiving department or role"} accessibilityLabel={stage === "PICKUP" ? "Role or department" : "Receiving department or role"} value={department} onChangeText={setDepartment} maxLength={120} autoCapitalize="words" editable={!locked} inputStyle={type.bodyMd} placeholderTextColor={colors.onSurfaceVariant} />
         <Text style={[type.labelLg, { color: colors.onSurface }]}>Draw signature below</Text>
